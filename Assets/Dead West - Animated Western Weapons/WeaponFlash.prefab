@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 9092356837205200749}
   - component: {fileID: 790964438514263568}
   - component: {fileID: 6444064235918039200}
+  - component: {fileID: 6609083166796095584}
   m_Layer: 0
   m_Name: WeaponFlash
   m_TagString: Untagged
@@ -127,3 +128,16 @@ MonoBehaviour:
   m_ShadowLayerMask: 1
   m_RenderingLayers: 1
   m_ShadowRenderingLayers: 1
+--- !u!114 &6609083166796095584
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8104456485616713334}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8497507bee6bad5409eb64afd0f70662, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WeaponFlash
+  time: 2
