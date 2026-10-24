@@ -3769,6 +3769,7 @@ GameObject:
   - component: {fileID: 633933149155681856}
   - component: {fileID: 7488061232873328862}
   - component: {fileID: 8690520829734023443}
+  - component: {fileID: 592473984583110972}
   m_Layer: 0
   m_Name: WobblyPlayer
   m_TagString: Untagged
@@ -3840,6 +3841,11 @@ MonoBehaviour:
   muscleDamping: 10
   impactFlopSeconds: 0.55
   headLookSharpness: 8
+  seatedThighEuler: {x: 68, y: 0, z: 0}
+  seatedShinEuler: {x: 82, y: 0, z: 0}
+  seatedFootEuler: {x: -24, y: 0, z: 0}
+  seatedArmEuler: {x: 8, y: 0, z: 10}
+  drivingArmEuler: {x: -28, y: 0, z: 18}
   aimTurnSpeed: 540
   turnStepDuration: 0.18
   turnStepDistance: 0.07
@@ -3874,6 +3880,22 @@ MonoBehaviour:
   fingerCurlSharpness: 14
   reloadKey: 114
   visualRecoilRecovery: 14
+--- !u!114 &592473984583110972
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7369284689638398286}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1c82443ff1798c440838f10da48597c6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WobblyVehicleInteractor
+  doorReach: 2.1
+  seatSearchRadius: 1.75
+  doorKey: 101
+  sitKey: 102
 --- !u!1 &7490270994981939518
 GameObject:
   m_ObjectHideFlags: 0

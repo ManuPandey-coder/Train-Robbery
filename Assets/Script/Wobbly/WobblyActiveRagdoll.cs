@@ -86,7 +86,17 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     public bool ArmsReserved { get; set; }
     public bool SupportHandReserved { get; set; }
     public Vector3 MovementVelocity => pelvisBody != null ? pelvisBody.linearVelocity : Vector3.zero;
+    public bool IsVehicleSeated => vehicleSeatAnchor != null;
     private WobblyWeaponController weaponController;
+
+    [Header("Vehicle seated pose")]
+    [Tooltip("Upper-leg rotation used while sitting in a vehicle. Exposed so unusual character rigs can be tuned.")]
+    [SerializeField] private Vector3 seatedThighEuler = new Vector3(68f, 0f, 0f);
+    [Tooltip("Lower-leg bend used while sitting in a vehicle.")]
+    [SerializeField] private Vector3 seatedShinEuler = new Vector3(82f, 0f, 0f);
+    [SerializeField] private Vector3 seatedFootEuler = new Vector3(-24f, 0f, 0f);
+    [SerializeField] private Vector3 seatedArmEuler = new Vector3(8f, 0f, 10f);
+    [SerializeField] private Vector3 drivingArmEuler = new Vector3(-28f, 0f, 18f);
 
     [Header("Weapon aim turning")]
     [SerializeField, Range(90f, 1080f)] private float aimTurnSpeed = 540f;
@@ -170,6 +180,11 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     private float bodyBobOffset;
     private float bodyBobVelocity;
     private float currentGaitFrequency;
+    private Transform vehicleSeatAnchor;
+    private Rigidbody seatedVehicleBody;
+    private Quaternion vehicleSeatRotationOffset = Quaternion.identity;
+    private bool vehicleDrivingPose;
+    private bool weaponWasEnabledBeforeSeat;
     private Vector3 leftSwingStartOffset;
     private Vector3 rightSwingStartOffset;
     private Vector3 previousLeftStepTarget;
@@ -248,6 +263,14 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     private void Update()
     {
         if (weaponController == null) weaponController = GetComponent<WobblyWeaponController>();
+        if (IsVehicleSeated)
+        {
+            moveInput = Vector2.zero;
+            runInput = false;
+            flopTimer = 0f;
+            jumpSupportCooldown = 0f;
+            return;
+        }
         moveInput = Vector2.ClampMagnitude(
             new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")), 1f);
         runInput = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
@@ -275,6 +298,11 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     private void FixedUpdate()
     {
         if (pelvisBody == null) return;
+        if (IsVehicleSeated)
+        {
+            UpdateVehicleSeatPose();
+            return;
+        }
         // Store the previous physics sample for render-time IK. Do not smooth
         // the actual contact targets or forces: that would make planted feet slip.
         previousLeftStepTarget = leftStepTargetWorld;
@@ -375,6 +403,165 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     }
 
     private float ActiveMoveSpeed => Mathf.Max(0f, runInput ? runSpeed : walkSpeed);
+
+    public bool EnterVehicleSeat(Transform seatAnchor, Rigidbody vehicleBody)
+    {
+        if (seatAnchor == null || pelvisBody == null || IsVehicleSeated) return false;
+
+        vehicleSeatAnchor = seatAnchor;
+        seatedVehicleBody = vehicleBody;
+        vehicleDrivingPose = false;
+        Vector3 oldPelvisPosition = pelvisBody.position;
+        Quaternion uprightSeatRotation = GetUprightVehicleSeatRotation();
+        vehicleSeatRotationOffset = Quaternion.Inverse(seatAnchor.rotation) * uprightSeatRotation;
+        Quaternion targetRotation = GetVehicleSeatRotation();
+        Quaternion rotationDelta = targetRotation * Quaternion.Inverse(pelvisBody.rotation);
+
+        for (int i = 0; i < muscles.Count; i++)
+        {
+            Rigidbody limb = muscles[i].body;
+            if (limb == null) continue;
+            limb.position = seatAnchor.position + rotationDelta * (limb.position - oldPelvisPosition);
+            limb.rotation = rotationDelta * limb.rotation;
+            limb.linearVelocity = Vector3.zero;
+            limb.angularVelocity = Vector3.zero;
+            limb.useGravity = false;
+            limb.detectCollisions = false;
+        }
+
+        pelvisBody.position = seatAnchor.position;
+        pelvisBody.rotation = targetRotation;
+        pelvisBody.linearVelocity = Vector3.zero;
+        pelvisBody.angularVelocity = Vector3.zero;
+        pelvisBody.useGravity = false;
+        pelvisBody.detectCollisions = false;
+        pelvisBody.isKinematic = true;
+
+        leftHasPlant = false;
+        rightHasPlant = false;
+        leftStepTargetValid = false;
+        rightStepTargetValid = false;
+        bodyBobOffset = 0f;
+        bodyBobVelocity = 0f;
+        IsGrounded = false;
+        hasSupportSurface = false;
+        ArmsReserved = false;
+        SupportHandReserved = false;
+        if (weaponController != null)
+        {
+            weaponWasEnabledBeforeSeat = weaponController.enabled;
+            weaponController.enabled = false;
+        }
+        return true;
+    }
+
+    public void SetVehicleDrivingPose(bool driving)
+    {
+        if (IsVehicleSeated) vehicleDrivingPose = driving;
+    }
+
+    public void ExitVehicleSeat(Vector3 standPosition, Quaternion standRotation)
+    {
+        if (!IsVehicleSeated || pelvisBody == null) return;
+
+        Vector3 oldPelvisPosition = pelvisBody.position;
+        Vector3 standForward = Vector3.ProjectOnPlane(standRotation * Vector3.forward, Vector3.up);
+        if (standForward.sqrMagnitude < 0.01f) standForward = GetCurrentBodyFacing();
+        standForward.Normalize();
+        float yaw = Vector3.SignedAngle(restForward, standForward, Vector3.up);
+        Quaternion targetRotation = Quaternion.AngleAxis(yaw, Vector3.up) * balanceRestWorld;
+        Quaternion rotationDelta = targetRotation * Quaternion.Inverse(pelvisBody.rotation);
+        Vector3 inheritedVelocity = seatedVehicleBody != null
+            ? seatedVehicleBody.GetPointVelocity(standPosition)
+            : Vector3.zero;
+
+        for (int i = 0; i < muscles.Count; i++)
+        {
+            Rigidbody limb = muscles[i].body;
+            if (limb == null) continue;
+            limb.position = standPosition + rotationDelta * (limb.position - oldPelvisPosition);
+            limb.rotation = rotationDelta * limb.rotation;
+            limb.useGravity = true;
+            limb.detectCollisions = true;
+            limb.linearVelocity = inheritedVelocity;
+            limb.angularVelocity = Vector3.zero;
+        }
+
+        pelvisBody.isKinematic = false;
+        pelvisBody.position = standPosition;
+        pelvisBody.rotation = targetRotation;
+        pelvisBody.useGravity = true;
+        pelvisBody.detectCollisions = true;
+        pelvisBody.linearVelocity = inheritedVelocity;
+        pelvisBody.angularVelocity = Vector3.zero;
+        movementFacingWorld = targetRotation;
+        uprightTargetWorld = targetRotation;
+        desiredFacing = standForward;
+
+        vehicleSeatAnchor = null;
+        seatedVehicleBody = null;
+        vehicleDrivingPose = false;
+        jumpSupportCooldown = 0.18f;
+        SetPose(leftThigh, Vector3.zero);
+        SetPose(rightThigh, Vector3.zero);
+        SetPose(leftShin, Vector3.zero);
+        SetPose(rightShin, Vector3.zero);
+        SetPose(leftFoot, Vector3.zero);
+        SetPose(rightFoot, Vector3.zero);
+        if (weaponController != null) weaponController.enabled = weaponWasEnabledBeforeSeat;
+    }
+
+    private void UpdateVehicleSeatPose()
+    {
+        if (vehicleSeatAnchor == null)
+        {
+            ExitVehicleSeat(pelvisBody.position, pelvisBody.rotation);
+            return;
+        }
+
+        Vector3 seatForward = Vector3.ProjectOnPlane(vehicleSeatAnchor.forward, Vector3.up);
+        if (seatForward.sqrMagnitude < 0.01f) seatForward = restForward;
+        desiredFacing = seatForward.normalized;
+        movementFacingWorld = GetVehicleSeatRotation();
+        uprightTargetWorld = movementFacingWorld;
+        pelvisBody.MovePosition(vehicleSeatAnchor.position);
+        pelvisBody.MoveRotation(movementFacingWorld);
+
+        SetPose(leftThigh, seatedThighEuler);
+        SetPose(rightThigh, seatedThighEuler);
+        SetPose(leftShin, seatedShinEuler);
+        SetPose(rightShin, seatedShinEuler);
+        SetPose(leftFoot, seatedFootEuler);
+        SetPose(rightFoot, seatedFootEuler);
+        Vector3 leftArmPose = vehicleDrivingPose
+            ? new Vector3(drivingArmEuler.x, -drivingArmEuler.y, drivingArmEuler.z)
+            : new Vector3(seatedArmEuler.x, -seatedArmEuler.y, seatedArmEuler.z);
+        Vector3 rightArmPose = vehicleDrivingPose
+            ? new Vector3(drivingArmEuler.x, drivingArmEuler.y, -drivingArmEuler.z)
+            : new Vector3(seatedArmEuler.x, seatedArmEuler.y, -seatedArmEuler.z);
+        SetPose(leftArm, leftArmPose);
+        SetPose(rightArm, rightArmPose);
+        SetPose(leftForearm, vehicleDrivingPose ? new Vector3(0f, 0f, 52f) : new Vector3(0f, 0f, 28f));
+        SetPose(rightForearm, vehicleDrivingPose ? new Vector3(0f, 0f, -52f) : new Vector3(0f, 0f, -28f));
+        DriveMuscles();
+    }
+
+    private Quaternion GetVehicleSeatRotation()
+    {
+        return vehicleSeatAnchor != null
+            ? vehicleSeatAnchor.rotation * vehicleSeatRotationOffset
+            : movementFacingWorld;
+    }
+
+    private Quaternion GetUprightVehicleSeatRotation()
+    {
+        Vector3 seatForward = vehicleSeatAnchor != null
+            ? Vector3.ProjectOnPlane(vehicleSeatAnchor.forward, Vector3.up)
+            : restForward;
+        if (seatForward.sqrMagnitude < 0.01f) seatForward = restForward;
+        float yaw = Vector3.SignedAngle(restForward, seatForward.normalized, Vector3.up);
+        return Quaternion.AngleAxis(yaw, Vector3.up) * balanceRestWorld;
+    }
 
     private static void ApplyMovementAcceleration(Rigidbody body, Vector3 acceleration, Vector3 normal)
     {

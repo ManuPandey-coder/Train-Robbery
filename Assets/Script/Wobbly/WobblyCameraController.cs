@@ -31,6 +31,7 @@ public sealed class WobblyCameraController : MonoBehaviour
     private Mesh firstPersonHandsMesh;
     private float recoilPitchOffset;
     private float recoilYawOffset;
+    private WobblyVehicleInteractor vehicleInteractor;
 
     public bool IsFirstPerson => !thirdPerson;
 
@@ -49,7 +50,11 @@ public sealed class WobblyCameraController : MonoBehaviour
     public WobblyActiveRagdoll Target
     {
         get => target;
-        set => target = value;
+        set
+        {
+            target = value;
+            vehicleInteractor = target != null ? target.GetComponent<WobblyVehicleInteractor>() : null;
+        }
     }
 
     private void Awake()
@@ -60,30 +65,39 @@ public sealed class WobblyCameraController : MonoBehaviour
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
         if (target == null) target = FindFirstObjectByType<WobblyActiveRagdoll>();
+        vehicleInteractor = target != null ? target.GetComponent<WobblyVehicleInteractor>() : null;
         BuildFirstPersonHands();
         ApplyViewVisibility();
     }
 
     private void Update()
     {
+        if (vehicleInteractor == null && target != null)
+            vehicleInteractor = target.GetComponent<WobblyVehicleInteractor>();
+        bool vehicleMenuOpen = vehicleInteractor != null && vehicleInteractor.WantsCursor;
         if (Input.GetKeyDown(KeyCode.C))
         {
             thirdPerson = !thirdPerson;
             firstPersonAnchorReady = false;
             ApplyViewVisibility();
         }
-        if (Input.GetKeyDown(KeyCode.Escape))
+        if (vehicleMenuOpen)
         {
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
-        if (Input.GetMouseButtonDown(0))
+        else if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+        if (!vehicleMenuOpen && Input.GetMouseButtonDown(0))
         {
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
 
-        if (Cursor.lockState == CursorLockMode.Locked)
+        if (!vehicleMenuOpen && Cursor.lockState == CursorLockMode.Locked)
         {
             yaw += Input.GetAxis("Mouse X") * mouseSensitivity;
             pitch = Mathf.Clamp(pitch - Input.GetAxis("Mouse Y") * mouseSensitivity, -70f, 78f);

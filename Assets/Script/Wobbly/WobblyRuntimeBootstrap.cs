@@ -57,6 +57,8 @@ public static class WobblyRuntimeBootstrap
 
         WobblyWeaponController weaponController = controller.GetComponent<WobblyWeaponController>();
         if (weaponController == null) controller.gameObject.AddComponent<WobblyWeaponController>();
+        WobblyVehicleInteractor vehicleInteractor = controller.GetComponent<WobblyVehicleInteractor>();
+        if (vehicleInteractor == null) controller.gameObject.AddComponent<WobblyVehicleInteractor>();
         WobblyPickupWeapon.PrepareSceneWeapons();
     }
 
