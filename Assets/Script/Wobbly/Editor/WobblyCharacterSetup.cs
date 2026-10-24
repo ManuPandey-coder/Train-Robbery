@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using UnityEditor;
+using UnityEditor.Animations;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -11,6 +12,13 @@ public static class WobblyCharacterSetup
     private const string ModelPath = "Assets/meshes/robber mangl.fbx";
     private const string PickupRootName = "PickupItems";
     private const string PlayerPrefabPath = "Assets/Prefabs/Player/WobblyPlayer.prefab";
+    private const string MovementAnimationRoot = "Assets/player animation/";
+    private const string MovementControllerRoot = MovementAnimationRoot + "Locomotion";
+    private const string MovementControllerPath = MovementControllerRoot + "/player.controller";
+    private const string IdleClipPath = MovementAnimationRoot + "Armature_idle.anim";
+    private const string WalkClipPath = MovementAnimationRoot + "Armature_walk.anim";
+    private const string RunClipPath = MovementAnimationRoot + "Armature_run.anim";
+    private const string JumpClipPath = MovementAnimationRoot + "Armature_jump.anim";
     private const string ThirdPartyRoot = "Assets/Third Party/";
     private const string RevolverBulletPath = ThirdPartyRoot + "RyanNein/MidPolyGunWeapons/Revolver/RevolverBullet.fbx";
     private const string RifleBulletPath = ThirdPartyRoot + "RyanNein/MidPolyGunWeapons/Rifle/RifleBullet.fbx";
@@ -83,6 +91,9 @@ public static class WobblyCharacterSetup
             player.transform.position = Vector3.zero;
         }
 
+        AnimatorController movementController = EnsureMovementController();
+        EnsureMovementAnimator(existing.gameObject, movementController);
+
         // Re-run this after every script reload so old oversized colliders are
         // resized using the character's current world scale and saved to scene.
         existing.BuildRagdoll();
@@ -103,6 +114,7 @@ public static class WobblyCharacterSetup
         WobblyWeaponController weaponController = existing.GetComponent<WobblyWeaponController>();
         if (weaponController == null) weaponController = Undo.AddComponent<WobblyWeaponController>(existing.gameObject);
         EnsurePlayerPrefab(existing);
+        EnsurePlayerPrefabAnimator(movementController);
         EnsureFloorWeapons(scene, existing.transform.position);
         WobblyPickupWeapon.PrepareSceneWeapons();
         EditorUtility.SetDirty(cameraController);
@@ -145,6 +157,195 @@ public static class WobblyCharacterSetup
         string folderName = path.Substring(separator + 1);
         EnsureAssetFolder(parent);
         AssetDatabase.CreateFolder(parent, folderName);
+    }
+
+    private static AnimatorController EnsureMovementController()
+    {
+        EnsureAssetFolder(MovementControllerRoot);
+        AnimationClip idle = AssetDatabase.LoadAssetAtPath<AnimationClip>(IdleClipPath);
+        AnimationClip walk = AssetDatabase.LoadAssetAtPath<AnimationClip>(WalkClipPath);
+        AnimationClip run = AssetDatabase.LoadAssetAtPath<AnimationClip>(RunClipPath);
+        AnimationClip jump = AssetDatabase.LoadAssetAtPath<AnimationClip>(JumpClipPath);
+        if (idle == null || walk == null || run == null || jump == null)
+        {
+            Debug.LogError("Could not load the four Blender animation assets in " + MovementAnimationRoot);
+            return AssetDatabase.LoadAssetAtPath<AnimatorController>(MovementControllerPath);
+        }
+
+        SetClipLooping(idle, true);
+        SetClipLooping(walk, true);
+        SetClipLooping(run, true);
+        SetClipLooping(jump, false);
+
+        AnimatorController controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(MovementControllerPath);
+        if (controller == null)
+            controller = AnimatorController.CreateAnimatorControllerAtPath(MovementControllerPath);
+        if (controller == null || HasCompleteMovementController(controller, idle, walk, run, jump)) return controller;
+
+        controller.layers = System.Array.Empty<AnimatorControllerLayer>();
+        controller.parameters = System.Array.Empty<AnimatorControllerParameter>();
+        Object[] subAssets = AssetDatabase.LoadAllAssetsAtPath(MovementControllerPath);
+        for (int i = 0; i < subAssets.Length; i++)
+            if (subAssets[i] != controller) Object.DestroyImmediate(subAssets[i], true);
+
+        controller.AddParameter("speed", AnimatorControllerParameterType.Float);
+        controller.AddParameter("is jumping", AnimatorControllerParameterType.Bool);
+        controller.AddLayer("Base Layer");
+
+        AnimatorControllerLayer baseLayer = controller.layers[0];
+        baseLayer.defaultWeight = 1f;
+        controller.layers = new[] { baseLayer };
+        AnimatorStateMachine stateMachine = baseLayer.stateMachine;
+        stateMachine.entryPosition = new Vector3(60f, 60f);
+        stateMachine.anyStatePosition = new Vector3(60f, -20f);
+        stateMachine.exitPosition = new Vector3(760f, 60f);
+
+        BlendTree locomotionTree = new BlendTree
+        {
+            name = "Idle Walk Run",
+            blendType = BlendTreeType.Simple1D,
+            blendParameter = "speed",
+            useAutomaticThresholds = false
+        };
+        AssetDatabase.AddObjectToAsset(locomotionTree, controller);
+        locomotionTree.AddChild(idle, 0f);
+        locomotionTree.AddChild(walk, 0.5f);
+        locomotionTree.AddChild(run, 1f);
+
+        AnimatorState locomotion = stateMachine.AddState("Idle / Walk / Run", new Vector3(310f, 70f));
+        locomotion.motion = locomotionTree;
+        locomotion.speed = 1f;
+        stateMachine.defaultState = locomotion;
+
+        AnimatorState jumping = stateMachine.AddState("Jumping", new Vector3(555f, -45f));
+        jumping.motion = jump;
+        jumping.speed = 1f;
+
+        AnimatorStateTransition jumpTransition = locomotion.AddTransition(jumping);
+        ConfigureImmediateTransition(jumpTransition, 0.08f);
+        jumpTransition.AddCondition(AnimatorConditionMode.If, 0f, "is jumping");
+
+        AnimatorStateTransition jumpReturn = jumping.AddTransition(locomotion);
+        ConfigureImmediateTransition(jumpReturn, 0.1f);
+        jumpReturn.AddCondition(AnimatorConditionMode.IfNot, 0f, "is jumping");
+
+        controller.AddLayer("gun");
+        AnimatorControllerLayer[] layers = controller.layers;
+        layers[1].defaultWeight = 0f;
+        AnimatorState reserved = layers[1].stateMachine.AddState("Reserved for Hand IK", new Vector3(310f, 70f));
+        layers[1].stateMachine.defaultState = reserved;
+        controller.layers = layers;
+
+        EditorUtility.SetDirty(locomotionTree);
+        EditorUtility.SetDirty(controller);
+        AssetDatabase.SaveAssets();
+        return controller;
+    }
+
+    private static bool HasCompleteMovementController(
+        AnimatorController controller,
+        AnimationClip idle,
+        AnimationClip walk,
+        AnimationClip run,
+        AnimationClip jump)
+    {
+        bool speed = false;
+        bool jumping = false;
+        AnimatorControllerParameter[] parameters = controller.parameters;
+        if (parameters.Length != 2) return false;
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            if (parameters[i].name == "speed" && parameters[i].type == AnimatorControllerParameterType.Float) speed = true;
+            else if (parameters[i].name == "is jumping" && parameters[i].type == AnimatorControllerParameterType.Bool) jumping = true;
+        }
+        if (!speed || !jumping || controller.layers.Length != 2) return false;
+
+        ChildAnimatorState[] states = controller.layers[0].stateMachine.states;
+        if (states.Length != 2) return false;
+        AnimatorState locomotion = null;
+        AnimatorState jumpingState = null;
+        for (int i = 0; i < states.Length; i++)
+        {
+            string stateName = states[i].state.name;
+            if (stateName == "Idle / Walk / Run") locomotion = states[i].state;
+            else if (stateName == "Jumping") jumpingState = states[i].state;
+        }
+        if (locomotion == null || jumpingState == null || jumpingState.motion != jump) return false;
+
+        BlendTree tree = locomotion.motion as BlendTree;
+        if (tree == null || tree.blendParameter != "speed" || tree.children.Length != 3) return false;
+        ChildMotion[] children = tree.children;
+        return children[0].motion == idle && children[1].motion == walk && children[2].motion == run;
+    }
+
+    private static void ConfigureImmediateTransition(AnimatorStateTransition transition, float duration)
+    {
+        transition.hasExitTime = false;
+        transition.hasFixedDuration = true;
+        transition.duration = duration;
+        transition.offset = 0f;
+    }
+
+    private static void SetClipLooping(AnimationClip clip, bool loop)
+    {
+        AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(clip);
+        if (settings.loopTime == loop && settings.loopBlend == loop) return;
+        settings.loopTime = loop;
+        settings.loopBlend = loop;
+        AnimationUtility.SetAnimationClipSettings(clip, settings);
+        EditorUtility.SetDirty(clip);
+    }
+
+    private static Animator EnsureMovementAnimator(GameObject playerRoot, RuntimeAnimatorController controller)
+    {
+        if (playerRoot == null || controller == null) return null;
+        Transform visual = FindDescendant(playerRoot.transform, "RobberVisualRig");
+        if (visual == null) visual = playerRoot.transform;
+        Animator animator = visual.GetComponent<Animator>();
+        if (animator == null) animator = visual.gameObject.AddComponent<Animator>();
+        animator.runtimeAnimatorController = controller;
+        animator.applyRootMotion = false;
+        animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+        animator.updateMode = AnimatorUpdateMode.Normal;
+        EditorUtility.SetDirty(animator);
+
+        WobblyActiveRagdoll ragdoll = playerRoot.GetComponent<WobblyActiveRagdoll>();
+        if (ragdoll != null)
+        {
+            SerializedObject serializedRagdoll = new SerializedObject(ragdoll);
+            SerializedProperty animatorProperty = serializedRagdoll.FindProperty("movementAnimator");
+            if (animatorProperty != null)
+            {
+                animatorProperty.objectReferenceValue = animator;
+                serializedRagdoll.ApplyModifiedPropertiesWithoutUndo();
+            }
+            EditorUtility.SetDirty(ragdoll);
+        }
+        return animator;
+    }
+
+    private static void EnsurePlayerPrefabAnimator(RuntimeAnimatorController controller)
+    {
+        if (controller == null || AssetDatabase.LoadAssetAtPath<GameObject>(PlayerPrefabPath) == null) return;
+        GameObject prefabRoot = PrefabUtility.LoadPrefabContents(PlayerPrefabPath);
+        try
+        {
+            EnsureMovementAnimator(prefabRoot, controller);
+            PrefabUtility.SaveAsPrefabAsset(prefabRoot, PlayerPrefabPath);
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(prefabRoot);
+        }
+    }
+
+    private static Transform FindDescendant(Transform root, string objectName)
+    {
+        if (root == null) return null;
+        Transform[] transforms = root.GetComponentsInChildren<Transform>(true);
+        for (int i = 0; i < transforms.Length; i++)
+            if (transforms[i].name == objectName) return transforms[i];
+        return null;
     }
 
     private static void EnsureFloorWeapons(Scene scene, Vector3 playerPosition)

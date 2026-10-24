@@ -23,9 +23,8 @@ public sealed class WobblyCameraController : MonoBehaviour
     private float firstPersonEyeHeight = -1f;
     private Vector3 smoothedFirstPersonAnchor;
     private bool firstPersonAnchorReady;
-    private bool followPositionReady;
-    private Vector3 previousTargetPosition;
-    private WobblyActiveRagdoll previousTarget;
+    private Vector3 smoothedFollowAnchor;
+    private bool followAnchorReady;
     private readonly List<RendererState> characterRenderers = new List<RendererState>();
     private SkinnedMeshRenderer firstPersonHands;
     private Mesh firstPersonHandsMesh;
@@ -54,6 +53,8 @@ public sealed class WobblyCameraController : MonoBehaviour
         {
             target = value;
             vehicleInteractor = target != null ? target.GetComponent<WobblyVehicleInteractor>() : null;
+            followAnchorReady = false;
+            firstPersonAnchorReady = false;
         }
     }
 
@@ -110,22 +111,28 @@ public sealed class WobblyCameraController : MonoBehaviour
     private void LateUpdate()
     {
         if (target == null || target.Pelvis == null) return;
-        Vector3 targetPosition = target.Pelvis.position;
-        if (followPositionReady && previousTarget == target)
+        Vector3 rawAnchor = target.CameraAnchorPosition;
+        if (!followAnchorReady)
         {
-            // Follow translation on the same rendered frame as the body.
-            // Damping world position made the camera chase each gait pulse;
-            // damp only the orbit/view offset instead.
-            Vector3 displacement = targetPosition - previousTargetPosition;
-            transform.position += displacement;
-            if (firstPersonAnchorReady) smoothedFirstPersonAnchor += displacement;
+            smoothedFollowAnchor = rawAnchor;
+            followAnchorReady = true;
         }
-        previousTargetPosition = targetPosition;
-        previousTarget = target;
-        followPositionReady = true;
+        else
+        {
+            // Horizontal travel comes from the interpolated physics core and is
+            // already stable. Smooth vertical motion more strongly in the air so
+            // jump rolls, landing impulses, and animated bones cannot shake the view.
+            smoothedFollowAnchor.x = rawAnchor.x;
+            smoothedFollowAnchor.z = rawAnchor.z;
+            float verticalSharpness = target.IsGrounded ? followSharpness : followSharpness * 0.45f;
+            float verticalBlend = 1f - Mathf.Exp(-Mathf.Max(2f, verticalSharpness) * Time.deltaTime);
+            smoothedFollowAnchor.y = Mathf.Lerp(smoothedFollowAnchor.y, rawAnchor.y, verticalBlend);
+        }
+
+        Vector3 targetPosition = smoothedFollowAnchor;
         Quaternion lookRotation = Quaternion.Euler(
             Mathf.Clamp(pitch + recoilPitchOffset, -75f, 82f), yaw + recoilYawOffset, 0f);
-        Vector3 focus = target.Pelvis.position + Vector3.up * thirdPersonHeight;
+        Vector3 focus = targetPosition + Vector3.up * thirdPersonHeight;
         Vector3 desired;
 
         if (thirdPerson)
@@ -146,21 +153,21 @@ public sealed class WobblyCameraController : MonoBehaviour
             Transform head = target.Head != null ? target.Head : target.Pelvis;
             if (firstPersonEyeHeight < 0f)
             {
-                float measuredHeight = head.position.y - target.Pelvis.position.y;
+                float measuredHeight = head.position.y - rawAnchor.y;
                 firstPersonEyeHeight = Mathf.Clamp(measuredHeight, 0.48f, Mathf.Max(0.55f, thirdPersonHeight));
             }
 
             // Use the interpolated pelvis as the first-person anchor instead of
             // the procedural head bone. This removes head/neck wobble from the
             // camera while the visible hands can remain physically animated.
-            Vector3 rawAnchor = target.Pelvis.position + Vector3.up * firstPersonEyeHeight;
+            Vector3 rawFirstPersonAnchor = targetPosition + Vector3.up * firstPersonEyeHeight;
             if (!firstPersonAnchorReady)
             {
-                smoothedFirstPersonAnchor = rawAnchor;
+                smoothedFirstPersonAnchor = rawFirstPersonAnchor;
                 firstPersonAnchorReady = true;
             }
             float anchorBlend = 1f - Mathf.Exp(-10f * Time.deltaTime);
-            smoothedFirstPersonAnchor = Vector3.Lerp(smoothedFirstPersonAnchor, rawAnchor, anchorBlend);
+            smoothedFirstPersonAnchor = Vector3.Lerp(smoothedFirstPersonAnchor, rawFirstPersonAnchor, anchorBlend);
             desired = smoothedFirstPersonAnchor + lookRotation * Vector3.forward * firstPersonForwardOffset;
             viewCamera.nearClipPlane = 0.025f;
         }
@@ -294,7 +301,7 @@ public sealed class WobblyCameraController : MonoBehaviour
 
     private void OnDisable()
     {
-        followPositionReady = false;
+        followAnchorReady = false;
         firstPersonAnchorReady = false;
         for (int i = 0; i < characterRenderers.Count; i++)
         {
