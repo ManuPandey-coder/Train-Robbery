@@ -3918,9 +3918,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WobblyVehicleInteractor
   doorReach: 2.1
-  seatSearchRadius: 1.75
+  seatSearchRadius: 2.6
   doorKey: 101
   sitKey: 102
+  switchSeatKey: 113
 --- !u!1 &7490270994981939518
 GameObject:
   m_ObjectHideFlags: 0

@@ -12,7 +12,8 @@ public sealed class WobblyCameraController : MonoBehaviour
     [SerializeField] private float thirdPersonHeight = 1.15f;
     [SerializeField] private float followSharpness = 14f;
     [SerializeField] private float collisionRadius = 0.2f;
-    [SerializeField] private float firstPersonForwardOffset = 0.18f;
+    [SerializeField, Range(0.2f, 0.6f)] private float firstPersonForwardOffset = 0.3f;
+    [SerializeField, Range(0.05f, 0.3f)] private float firstPersonNearClip = 0.12f;
     [SerializeField] private bool startInThirdPerson = true;
     [SerializeField, Range(2f, 30f)] private float recoilRecoverySharpness = 11f;
 
@@ -157,24 +158,26 @@ public sealed class WobblyCameraController : MonoBehaviour
                 firstPersonEyeHeight = Mathf.Clamp(measuredHeight, 0.48f, Mathf.Max(0.55f, thirdPersonHeight));
             }
 
-            // Use the interpolated pelvis as the first-person anchor instead of
-            // the procedural head bone. This removes head/neck wobble from the
-            // camera while the visible hands can remain physically animated.
-            Vector3 rawFirstPersonAnchor = targetPosition + Vector3.up * firstPersonEyeHeight;
-            if (!firstPersonAnchorReady)
-            {
-                smoothedFirstPersonAnchor = rawFirstPersonAnchor;
-                firstPersonAnchorReady = true;
-            }
-            float anchorBlend = 1f - Mathf.Exp(-10f * Time.deltaTime);
-            smoothedFirstPersonAnchor = Vector3.Lerp(smoothedFirstPersonAnchor, rawFirstPersonAnchor, anchorBlend);
-            desired = smoothedFirstPersonAnchor + lookRotation * Vector3.forward * firstPersonForwardOffset;
-            viewCamera.nearClipPlane = 0.025f;
+            // First person must stay locked to the latest interpolated physics
+            // pose. Additional anchor/camera smoothing creates visible trailing
+            // whenever the player accelerates or changes look direction.
+            Vector3 rawFirstPersonAnchor = rawAnchor + Vector3.up * firstPersonEyeHeight;
+            smoothedFirstPersonAnchor = rawFirstPersonAnchor;
+            firstPersonAnchorReady = true;
+            desired = rawFirstPersonAnchor + lookRotation * Vector3.forward * firstPersonForwardOffset;
+            viewCamera.nearClipPlane = firstPersonNearClip;
         }
 
-        float blend = 1f - Mathf.Exp(-followSharpness * Time.deltaTime);
-        transform.position = Vector3.Lerp(transform.position, desired, blend);
-        transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, blend);
+        if (thirdPerson)
+        {
+            float blend = 1f - Mathf.Exp(-followSharpness * Time.deltaTime);
+            transform.position = Vector3.Lerp(transform.position, desired, blend);
+            transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, blend);
+        }
+        else
+        {
+            transform.SetPositionAndRotation(desired, lookRotation);
+        }
     }
 
     private void BuildFirstPersonHands()

@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: be95b8e776fc38b4d9c4f571bb83e4a2
+PrefabImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 320964
+  packageName: True Track System - Spline Merger
+  packageVersion: 1.0.3
+  assetPath: Assets/TrueTrackSystem/TrackBuilderTools/SplineManager.prefab
+  uploadId: 760796

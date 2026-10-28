@@ -6,9 +6,10 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
 {
     [Header("Interaction")]
     [SerializeField, Min(0.5f)] private float doorReach = 2.1f;
-    [SerializeField, Min(0.5f)] private float seatSearchRadius = 1.75f;
+    [SerializeField, Min(0.5f)] private float seatSearchRadius = 2.6f;
     [SerializeField] private KeyCode doorKey = KeyCode.E;
     [SerializeField] private KeyCode sitKey = KeyCode.F;
+    [SerializeField] private KeyCode switchSeatKey = KeyCode.Q;
 
     private WobblyActiveRagdoll player;
     private WobblyVehicleSeat currentSeat;
@@ -26,6 +27,7 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
     private void Awake()
     {
         player = GetComponent<WobblyActiveRagdoll>();
+        seatSearchRadius = Mathf.Max(2.6f, seatSearchRadius);
     }
 
     private void Update()
@@ -34,15 +36,13 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
 
         if (currentSeat != null)
         {
-            if (IsDriving)
+            if (Input.GetKeyDown(switchSeatKey)) SwitchSeat();
+            if (Input.GetKeyDown(doorKey) && currentSeat.IsDriverSeat)
             {
-                if (Input.GetKeyDown(sitKey)) currentSeat.StopDriving();
+                if (IsDriving) currentSeat.StopDriving();
+                else currentSeat.BeginDriving();
             }
-            else
-            {
-                if (currentSeat.IsDriverSeat && Input.GetKeyDown(doorKey)) currentSeat.BeginDriving();
-                if (Input.GetKeyDown(sitKey)) StandUp();
-            }
+            if (Input.GetKeyDown(sitKey)) StandUp();
             return;
         }
 
@@ -52,8 +52,8 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
             FindNearbyInteractions();
         }
 
-        if (nearbyDoor != null && Input.GetKeyDown(doorKey)) nearbyDoor.Toggle();
         if (nearbySeat != null && Input.GetKeyDown(sitKey)) SitDown(nearbySeat);
+        if (nearbySeat == null && nearbyDoor != null && Input.GetKeyDown(doorKey)) nearbyDoor.Toggle();
     }
 
     private void FindNearbyInteractions()
@@ -103,61 +103,79 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
         nextSearchTime = Time.unscaledTime + 0.35f;
     }
 
+    private void SwitchSeat()
+    {
+        if (currentSeat == null || currentSeat.Vehicle == null) return;
+        WobblyVehicleSeat[] seats = currentSeat.Vehicle.GetComponentsInChildren<WobblyVehicleSeat>(true);
+        WobblyVehicleSeat targetSeat = null;
+        for (int i = 0; i < seats.Length; i++)
+        {
+            if (seats[i] == currentSeat || seats[i].Occupant != null) continue;
+            targetSeat = seats[i];
+            break;
+        }
+        if (targetSeat == null || !currentSeat.SwitchOccupantTo(targetSeat)) return;
+        currentSeat = targetSeat;
+    }
+
     private void OnGUI()
     {
         EnsureStyles();
-        float width = Mathf.Min(440f, Screen.width - 32f);
+        float width = Mathf.Min(540f, Screen.width - 32f);
         float x = (Screen.width - width) * 0.5f;
-        float y = Screen.height - 145f;
+        float y = Screen.height - 155f;
 
         if (IsDriving)
         {
-            GUI.Box(new Rect(x, y, width, 105f), GUIContent.none);
+            GUI.Box(new Rect(x, y, width, 118f), GUIContent.none);
             GUI.Label(new Rect(x + 12f, y + 9f, width - 24f, 26f),
                 $"DRIVING  {currentSeat.Vehicle.SpeedKilometresPerHour:0} km/h", titleStyle);
-            GUI.Label(new Rect(x + 12f, y + 42f, width - 24f, 48f),
-                "WASD steer and accelerate   •   Space brake   •   F stop driving", hintStyle);
+            float drivingButtonWidth = (width - 48f) / 3f;
+            if (GUI.Button(new Rect(x + 12f, y + 45f, drivingButtonWidth, 52f), "Switch Seat  [Q]"))
+                SwitchSeat();
+            if (GUI.Button(new Rect(x + 24f + drivingButtonWidth, y + 45f, drivingButtonWidth, 52f), "Stop Driving  [E]"))
+                currentSeat.StopDriving();
+            if (GUI.Button(new Rect(x + 36f + drivingButtonWidth * 2f, y + 45f, drivingButtonWidth, 52f), "Get Out  [F]"))
+                StandUp();
             return;
         }
 
         if (currentSeat != null)
         {
-            GUI.Box(new Rect(x, y, width, 112f), GUIContent.none);
+            GUI.Box(new Rect(x, y, width, 118f), GUIContent.none);
             GUI.Label(new Rect(x + 12f, y + 8f, width - 24f, 26f),
                 "SITTING — " + currentSeat.SeatName, titleStyle);
-            float buttonWidth = currentSeat.IsDriverSeat ? (width - 36f) * 0.5f : width - 24f;
-            if (currentSeat.IsDriverSeat && GUI.Button(new Rect(x + 12f, y + 43f, buttonWidth, 48f), "Drive Truck  [E]"))
+            float buttonWidth = (width - 48f) / 3f;
+            if (GUI.Button(new Rect(x + 12f, y + 43f, buttonWidth, 52f), "Switch Seat  [Q]"))
+                SwitchSeat();
+            bool previousEnabled = GUI.enabled;
+            GUI.enabled = currentSeat != null && currentSeat.IsDriverSeat;
+            if (GUI.Button(new Rect(x + 24f + buttonWidth, y + 43f, buttonWidth, 52f),
+                    currentSeat != null && currentSeat.IsDriverSeat ? "Drive Truck  [E]" : "Driver Seat Only"))
                 currentSeat.BeginDriving();
-            float standX = currentSeat.IsDriverSeat ? x + 24f + buttonWidth : x + 12f;
-            if (GUI.Button(new Rect(standX, y + 43f, buttonWidth, 48f), "Stand Up  [F]"))
+            GUI.enabled = previousEnabled;
+            if (GUI.Button(new Rect(x + 36f + buttonWidth * 2f, y + 43f, buttonWidth, 52f), "Get Out  [F]"))
                 StandUp();
             return;
         }
 
         if (nearbyDoor == null && nearbySeat == null) return;
         GUI.Box(new Rect(x, y, width, 104f), GUIContent.none);
-        float cursorX = x + 12f;
-        if (nearbyDoor != null)
-        {
-            string doorText = (nearbyDoor.IsOpen ? "Close " : "Open ") + nearbyDoor.InteractionName + "  [E]";
-            if (GUI.Button(new Rect(cursorX, y + 38f, (width - 36f) * 0.5f, 46f), doorText)) nearbyDoor.Toggle();
-            cursorX += (width - 36f) * 0.5f + 12f;
-        }
         if (nearbySeat != null)
         {
             GUI.Label(new Rect(x + 12f, y + 8f, width - 24f, 25f),
-                "Inside the cabin — choose a seat", titleStyle);
-            float seatWidth = nearbyDoor != null ? (width - 36f) * 0.5f : width - 24f;
-            if (GUI.Button(new Rect(cursorX, y + 38f, seatWidth, 46f),
+                "Truck nearby — sit directly", titleStyle);
+            if (GUI.Button(new Rect(x + 12f, y + 38f, width - 24f, 46f),
                     "Sit in " + nearbySeat.SeatName + "  [F]"))
                 SitDown(nearbySeat);
         }
         else
         {
             GUI.Label(new Rect(x + 12f, y + 8f, width - 24f, 25f),
-                nearbyDoor.InteractionName == "Door"
-                    ? "Open the door, then climb into the cabin"
-                    : "Interact with the truck", titleStyle);
+                "Interact with the truck", titleStyle);
+            string doorText = (nearbyDoor.IsOpen ? "Close " : "Open ") + nearbyDoor.InteractionName + "  [E]";
+            if (GUI.Button(new Rect(x + 12f, y + 38f, width - 24f, 46f), doorText))
+                nearbyDoor.Toggle();
         }
     }
 

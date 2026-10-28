@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[DefaultExecutionOrder(150)]
 [DisallowMultipleComponent]
 [RequireComponent(typeof(Rigidbody))]
 public sealed class WobblyVehicleController : MonoBehaviour
@@ -24,14 +25,23 @@ public sealed class WobblyVehicleController : MonoBehaviour
     [SerializeField] private Transform rearLeftMesh;
     [SerializeField] private Transform rearRightMesh;
     [SerializeField] private Transform steeringWheel;
+    [SerializeField] private Transform leftSteeringGrip;
+    [SerializeField] private Transform rightSteeringGrip;
+    [SerializeField, Range(-50f, 10f)] private float steeringWheelPitch = -24f;
+    [SerializeField, Range(1f, 6f)] private float steeringWheelTurns = 3f;
     [SerializeField] private WobblyVehicleDoor[] doors;
 
     private Rigidbody body;
     private WobblyVehicleSeat driverSeat;
+    private WobblyWeaponController steeringPoseController;
+    private Quaternion steeringWheelRestLocalRotation = Quaternion.identity;
     private float steerAngle;
 
     public bool IsBeingDriven => driverSeat != null && driverSeat.Occupant != null;
     public WobblyVehicleSeat DriverSeat => driverSeat;
+    public Transform SteeringWheel => steeringWheel;
+    public Transform LeftSteeringGrip => leftSteeringGrip;
+    public Transform RightSteeringGrip => rightSteeringGrip;
     public float SpeedKilometresPerHour => body == null ? 0f : body.linearVelocity.magnitude * 3.6f;
 
     private void Awake()
@@ -42,6 +52,12 @@ public sealed class WobblyVehicleController : MonoBehaviour
         body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
         body.linearDamping = 0.08f;
         body.angularDamping = 0.9f;
+        if (steeringWheel != null)
+        {
+            steeringWheelRestLocalRotation = steeringWheel.localRotation;
+            if (leftSteeringGrip == null) leftSteeringGrip = steeringWheel.Find("LeftHandGrip");
+            if (rightSteeringGrip == null) rightSteeringGrip = steeringWheel.Find("RightHandGrip");
+        }
     }
 
     private void FixedUpdate()
@@ -78,13 +94,20 @@ public sealed class WobblyVehicleController : MonoBehaviour
         MatchWheel(rearLeft, rearLeftMesh);
         MatchWheel(rearRight, rearRightMesh);
         if (steeringWheel != null)
-            steeringWheel.localRotation = Quaternion.Euler(-64f, 0f, steerAngle * 3f);
+        {
+            Quaternion correctedRest = steeringWheelRestLocalRotation *
+                                       Quaternion.AngleAxis(steeringWheelPitch, Vector3.right);
+            steeringWheel.localRotation = correctedRest *
+                                          Quaternion.AngleAxis(-steerAngle * steeringWheelTurns, Vector3.forward);
+        }
+        UpdateDriverHands();
     }
 
     public void Configure(
         WheelCollider fl, WheelCollider fr, WheelCollider rl, WheelCollider rr,
         Transform flMesh, Transform frMesh, Transform rlMesh, Transform rrMesh,
-        Transform wheel, WobblyVehicleDoor[] configuredDoors)
+        Transform wheel, Transform leftGrip, Transform rightGrip,
+        WobblyVehicleDoor[] configuredDoors)
     {
         frontLeft = fl;
         frontRight = fr;
@@ -95,6 +118,8 @@ public sealed class WobblyVehicleController : MonoBehaviour
         rearLeftMesh = rlMesh;
         rearRightMesh = rrMesh;
         steeringWheel = wheel;
+        leftSteeringGrip = leftGrip;
+        rightSteeringGrip = rightGrip;
         doors = configuredDoors;
     }
 
@@ -102,6 +127,7 @@ public sealed class WobblyVehicleController : MonoBehaviour
     {
         if (seat == null || !seat.IsDriverSeat || seat.Occupant == null || driverSeat != null) return false;
         driverSeat = seat;
+        steeringPoseController = seat.Occupant.GetComponent<WobblyWeaponController>();
         CloseAllDoors();
         seat.Occupant.SetVehicleDrivingPose(true);
         return true;
@@ -112,6 +138,7 @@ public sealed class WobblyVehicleController : MonoBehaviour
         if (driverSeat != seat) return;
         if (driverSeat != null && driverSeat.Occupant != null)
             driverSeat.Occupant.SetVehicleDrivingPose(false);
+        ReleaseDriverHands();
         driverSeat = null;
         ClearWheelInput();
     }
@@ -125,6 +152,7 @@ public sealed class WobblyVehicleController : MonoBehaviour
 
     private void OnDisable()
     {
+        ReleaseDriverHands();
         driverSeat = null;
         ClearWheelInput();
     }
@@ -135,6 +163,24 @@ public sealed class WobblyVehicleController : MonoBehaviour
         ApplyWheel(frontRight, 0f, 0f, rollingBrakeTorque);
         ApplyWheel(rearLeft, 0f, 0f, rollingBrakeTorque);
         ApplyWheel(rearRight, 0f, 0f, rollingBrakeTorque);
+    }
+
+    private void UpdateDriverHands()
+    {
+        if (!IsBeingDriven || leftSteeringGrip == null || rightSteeringGrip == null) return;
+        if (steeringPoseController == null)
+            steeringPoseController = driverSeat.Occupant.GetComponent<WobblyWeaponController>();
+        if (steeringPoseController != null)
+            steeringPoseController.ApplySteeringWheelPose(
+                leftSteeringGrip, rightSteeringGrip, steeringWheel, true);
+    }
+
+    private void ReleaseDriverHands()
+    {
+        if (steeringPoseController != null)
+            steeringPoseController.ApplySteeringWheelPose(
+                leftSteeringGrip, rightSteeringGrip, steeringWheel, false);
+        steeringPoseController = null;
     }
 
     private static void ApplyWheel(WheelCollider wheel, float steering, float motor, float brake)

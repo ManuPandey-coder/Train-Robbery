@@ -511,10 +511,78 @@ public sealed class WobblyWeaponController : MonoBehaviour
         reloadStartTime = reloadEndTime = 0f;
     }
 
+    public void PrepareForVehicleSeat()
+    {
+        // Weapon IK is applied directly to the rendered shoulder, arms, hands,
+        // and fingers. Clear it before the ragdoll copies that rendered pose to
+        // its physics bodies, otherwise the grip becomes the seat's rest pose.
+        EndGripEditing();
+        if (heldWeapon != null) DropHeldWeapon();
+        else CancelReload();
+
+        aimInput = false;
+        aimBlend = 0f;
+        pickupProgress = 0f;
+        holdPoseReady = false;
+        visualRecoilPitch = 0f;
+        visualRecoilYaw = 0f;
+        visualRecoilBack = 0f;
+
+        if (leftFingerBones.Length == 0 || rightFingerBones.Length == 0)
+            CacheFingerBones();
+        ResetLeftShoulder();
+        leftFingerBlend = 0f;
+        rightFingerBlend = 0f;
+        PoseFingers(leftFingerBones, 0f, null);
+        PoseFingers(rightFingerBones, 0f, null);
+        if (ragdoll != null)
+        {
+            ragdoll.ArmsReserved = false;
+            ragdoll.SupportHandReserved = false;
+        }
+    }
+
     private void OnDisable()
     {
         if (heldWeapon != null) DropHeldWeapon();
         if (ragdoll != null) { ragdoll.ArmsReserved = false; ragdoll.SupportHandReserved = false; }
+    }
+
+    public void ApplySteeringWheelPose(
+        Transform leftGrip, Transform rightGrip, Transform wheel, bool active)
+    {
+        if (ragdoll == null) ragdoll = GetComponent<WobblyActiveRagdoll>();
+        if (ragdoll == null) return;
+
+        if (!active)
+        {
+            ResetLeftShoulder();
+            PoseFingers(leftFingerBones, 0f, null);
+            PoseFingers(rightFingerBones, 0f, null);
+            ragdoll.ArmsReserved = false;
+            ragdoll.SupportHandReserved = false;
+            return;
+        }
+
+        if (leftGrip == null || rightGrip == null) return;
+        if (!leftArmIk.valid || !rightArmIk.valid) CacheArmIk();
+        if (leftFingerBones.Length == 0 || rightFingerBones.Length == 0) CacheFingerBones();
+
+        ResetLeftShoulder();
+        Vector3 bodyForward = ragdoll.FacingDirection;
+        if (bodyForward.sqrMagnitude < 0.001f) bodyForward = transform.forward;
+        bodyForward = Vector3.ProjectOnPlane(bodyForward, Vector3.up).normalized;
+        Vector3 bodyRight = Vector3.Cross(Vector3.up, bodyForward).normalized;
+        Vector3 wheelForward = wheel != null ? wheel.forward : bodyForward;
+
+        SolveArmIk(leftArmIk, leftGrip.position, wheelForward, bodyRight,
+            leftGrip.rotation, 1f);
+        SolveArmIk(rightArmIk, rightGrip.position, wheelForward, bodyRight,
+            rightGrip.rotation, 1f);
+        PoseFingers(leftFingerBones, 1f, null);
+        PoseFingers(rightFingerBones, 1f, null);
+        ragdoll.ArmsReserved = true;
+        ragdoll.SupportHandReserved = true;
     }
 
     private void CacheArmIk()

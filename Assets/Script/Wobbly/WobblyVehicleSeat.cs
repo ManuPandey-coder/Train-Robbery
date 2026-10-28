@@ -9,7 +9,7 @@ public sealed class WobblyVehicleSeat : MonoBehaviour
     [SerializeField] private Transform standPoint;
     [SerializeField] private Transform interactionPoint;
     [SerializeField] private bool driverSeat;
-    [SerializeField, Min(0.5f)] private float interactionDistance = 1.45f;
+    [SerializeField, Min(0.5f)] private float interactionDistance = 2.6f;
 
     public WobblyVehicleController Vehicle => vehicle;
     public WobblyVehicleDoor AccessDoor => accessDoor;
@@ -34,7 +34,8 @@ public sealed class WobblyVehicleSeat : MonoBehaviour
     {
         if (player == null || Occupant != null || player.IsVehicleSeated) return false;
         if (accessDoor != null && !accessDoor.IsOpen) return false;
-        return Vector3.Distance(player.Pelvis.position, InteractionPoint.position) <= interactionDistance;
+        return Vector3.Distance(player.Pelvis.position, InteractionPoint.position) <=
+               Mathf.Max(2.6f, interactionDistance);
     }
 
     public bool Sit(WobblyActiveRagdoll player)
@@ -55,10 +56,25 @@ public sealed class WobblyVehicleSeat : MonoBehaviour
         if (vehicle != null) vehicle.StopDriving(this);
     }
 
+    public bool SwitchOccupantTo(WobblyVehicleSeat target)
+    {
+        if (target == null || target == this || Occupant == null || target.Occupant != null ||
+            target.vehicle != vehicle || target.seatAnchor == null) return false;
+
+        StopDriving();
+        WobblyActiveRagdoll player = Occupant;
+        Rigidbody vehicleBody = vehicle != null ? vehicle.GetComponent<Rigidbody>() : null;
+        if (!player.SwitchVehicleSeat(target.seatAnchor, vehicleBody)) return false;
+        Occupant = null;
+        target.Occupant = player;
+        return true;
+    }
+
     public void StandUp()
     {
         if (Occupant == null) return;
         StopDriving();
+        if (accessDoor != null) accessDoor.SetOpen(true);
         Transform exit = standPoint != null ? standPoint : transform;
         WobblyActiveRagdoll player = Occupant;
         Occupant = null;

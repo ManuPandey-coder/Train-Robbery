@@ -173,6 +173,9 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     private float totalRagdollMass = 40f;
     private bool hasSupportSurface;
     private RaycastHit supportHit;
+    private Rigidbody trackedSupportBody;
+    private Vector3 trackedSupportVelocity;
+    private bool supportVelocityReady;
     private float leftFootSideOffset;
     private float rightFootSideOffset;
     private bool leftWasSwinging;
@@ -619,8 +622,25 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     private void DriveMovement(Vector3 move)
     {
         Vector3 normal = IsGrounded && hasSupportSurface ? supportHit.normal.normalized : Vector3.up;
-        Vector3 platformVelocity = IsGrounded && hasSupportSurface && supportHit.rigidbody != null
-            ? supportHit.rigidbody.GetPointVelocity(pelvisBody.position) : Vector3.zero;
+        Rigidbody supportBody = IsGrounded && hasSupportSurface ? supportHit.rigidbody : null;
+        Vector3 platformVelocity = supportBody != null
+            ? supportBody.GetPointVelocity(pelvisBody.position) : Vector3.zero;
+        Vector3 platformAcceleration = Vector3.zero;
+        if (supportBody != null)
+        {
+            if (supportVelocityReady && trackedSupportBody == supportBody)
+                platformAcceleration = Vector3.ClampMagnitude(
+                    (platformVelocity - trackedSupportVelocity) / Mathf.Max(0.001f, Time.fixedDeltaTime), 45f);
+            trackedSupportBody = supportBody;
+            trackedSupportVelocity = platformVelocity;
+            supportVelocityReady = true;
+        }
+        else
+        {
+            trackedSupportBody = null;
+            trackedSupportVelocity = Vector3.zero;
+            supportVelocityReady = false;
+        }
         Vector3 planarVelocity = Vector3.ProjectOnPlane(pelvisBody.linearVelocity - platformVelocity, normal);
         float control = IsGrounded ? 1f : 0.28f;
         Vector3 direction = Vector3.ProjectOnPlane(move, normal).normalized;
@@ -637,6 +657,10 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
         if ((velocityError * 10f + proposedIntegral).magnitude < maximumAcceleration)
             movementIntegral = proposedIntegral;
         Vector3 driveAcceleration = Vector3.ClampMagnitude(velocityError * 10f + movementIntegral, maximumAcceleration) * control;
+        // A dynamic floor can accelerate beneath the player faster than contact
+        // friction can move an articulated ragdoll. Feed that platform
+        // acceleration to every body so walking in vehicles stays stable.
+        driveAcceleration += platformAcceleration;
         // Drive the whole articulated mass, not just the pelvis dragging twelve
         // damped limbs. Contacts and joint constraints still run in the solver.
         ApplyMovementAcceleration(pelvisBody, driveAcceleration, normal);
@@ -652,8 +676,16 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
 
         animatorWasEnabledBeforeSeat = movementAnimator != null && movementAnimator.enabled;
         if (movementAnimator != null) movementAnimator.enabled = false;
+        if (weaponController != null)
+        {
+            weaponWasEnabledBeforeSeat = weaponController.enabled;
+            weaponController.PrepareForVehicleSeat();
+            weaponController.enabled = false;
+        }
+        ResetUpperBodyForVehicleSeat();
         SynchronizePhysicsLimbsToVisuals();
         ConfigureLimbSimulation(true);
+        ConfigureSeatedJointLimits();
 
         vehicleSeatAnchor = seatAnchor;
         seatedVehicleBody = vehicleBody;
@@ -693,17 +725,52 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
         hasSupportSurface = false;
         ArmsReserved = false;
         SupportHandReserved = false;
-        if (weaponController != null)
-        {
-            weaponWasEnabledBeforeSeat = weaponController.enabled;
-            weaponController.enabled = false;
-        }
+        // Rigidbody interpolation otherwise exposes the pre-seat transforms to
+        // the first steering-hand IK pass, making the arms grip empty space.
+        Physics.SyncTransforms();
         return true;
     }
 
     public void SetVehicleDrivingPose(bool driving)
     {
         if (IsVehicleSeated) vehicleDrivingPose = driving;
+    }
+
+    public bool SwitchVehicleSeat(Transform newSeatAnchor, Rigidbody vehicleBody)
+    {
+        if (!IsVehicleSeated || newSeatAnchor == null || pelvisBody == null) return false;
+
+        Vector3 oldPelvisPosition = pelvisBody.position;
+        Quaternion oldPelvisRotation = pelvisBody.rotation;
+        vehicleSeatAnchor = newSeatAnchor;
+        seatedVehicleBody = vehicleBody;
+        vehicleDrivingPose = false;
+
+        Quaternion uprightSeatRotation = GetUprightVehicleSeatRotation();
+        vehicleSeatRotationOffset = Quaternion.Inverse(newSeatAnchor.rotation) * uprightSeatRotation;
+        Quaternion targetRotation = GetVehicleSeatRotation();
+        Quaternion rotationDelta = targetRotation * Quaternion.Inverse(oldPelvisRotation);
+
+        for (int i = 0; i < muscles.Count; i++)
+        {
+            Rigidbody limb = muscles[i].body;
+            if (limb == null) continue;
+            limb.position = newSeatAnchor.position + rotationDelta * (limb.position - oldPelvisPosition);
+            limb.rotation = rotationDelta * limb.rotation;
+            limb.linearVelocity = Vector3.zero;
+            limb.angularVelocity = Vector3.zero;
+        }
+
+        pelvisBody.position = newSeatAnchor.position;
+        pelvisBody.rotation = targetRotation;
+        pelvisBody.transform.SetPositionAndRotation(newSeatAnchor.position, targetRotation);
+        pelvisBody.linearVelocity = Vector3.zero;
+        pelvisBody.angularVelocity = Vector3.zero;
+        desiredFacing = Vector3.ProjectOnPlane(newSeatAnchor.forward, Vector3.up).normalized;
+        movementFacingWorld = targetRotation;
+        uprightTargetWorld = targetRotation;
+        Physics.SyncTransforms();
+        return true;
     }
 
     public void ExitVehicleSeat(Vector3 standPosition, Quaternion standRotation)
@@ -733,13 +800,18 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
             limb.angularVelocity = Vector3.zero;
         }
 
-        pelvisBody.isKinematic = false;
+        // Move the still-kinematic core before restoring simulation. With
+        // interpolation enabled, releasing it first leaves Transform at the
+        // old seat pose for a frame, which visually drops the player into the
+        // cabin and can begin the next contact step from an overlap.
         pelvisBody.position = standPosition;
         pelvisBody.rotation = targetRotation;
+        pelvisBody.transform.SetPositionAndRotation(standPosition, targetRotation);
         pelvisBody.useGravity = true;
         pelvisBody.detectCollisions = true;
         pelvisBody.linearVelocity = inheritedVelocity;
         pelvisBody.angularVelocity = Vector3.zero;
+        pelvisBody.isKinematic = false;
         movementFacingWorld = targetRotation;
         uprightTargetWorld = targetRotation;
         desiredFacing = standForward;
@@ -753,7 +825,9 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
             movementAnimator.enabled = animatorWasEnabledBeforeSeat;
             if (movementAnimator.enabled) movementAnimator.Update(0f);
         }
-        jumpSupportCooldown = 0.18f;
+        // Leaving a seat is not a jump. Ground support must be available on the
+        // first FixedUpdate or a moving cabin can pass beneath the player.
+        jumpSupportCooldown = 0f;
         SetPose(leftThigh, Vector3.zero);
         SetPose(rightThigh, Vector3.zero);
         SetPose(leftShin, Vector3.zero);
@@ -761,6 +835,7 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
         SetPose(leftFoot, Vector3.zero);
         SetPose(rightFoot, Vector3.zero);
         if (weaponController != null) weaponController.enabled = weaponWasEnabledBeforeSeat;
+        Physics.SyncTransforms();
     }
 
     private void UpdateVehicleSeatPose()
@@ -795,7 +870,52 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
         SetPose(rightArm, rightArmPose);
         SetPose(leftForearm, vehicleDrivingPose ? new Vector3(0f, 0f, 52f) : new Vector3(0f, 0f, 28f));
         SetPose(rightForearm, vehicleDrivingPose ? new Vector3(0f, 0f, -52f) : new Vector3(0f, 0f, -28f));
+        SetPose(leftHand, Vector3.zero);
+        SetPose(rightHand, Vector3.zero);
         DriveMuscles();
+    }
+
+    private void ResetUpperBodyForVehicleSeat()
+    {
+        ArmsReserved = false;
+        SupportHandReserved = false;
+        SetPose(leftArm, Vector3.zero);
+        SetPose(rightArm, Vector3.zero);
+        SetPose(leftForearm, Vector3.zero);
+        SetPose(rightForearm, Vector3.zero);
+        SetPose(leftHand, Vector3.zero);
+        SetPose(rightHand, Vector3.zero);
+
+        // Restore the authored body-relative arm pose immediately. Waiting for
+        // muscle torque is too late because SynchronizePhysicsLimbsToVisuals
+        // runs during this same seat-entry frame.
+        for (int i = 0; i < muscles.Count; i++)
+        {
+            Muscle muscle = muscles[i];
+            if (muscle.visualBone == null || IsLegBone(muscle.visualBone)) continue;
+            muscle.visualBone.rotation = movementFacingWorld * muscle.restRelativeToPelvis *
+                                         muscle.visualRotationOffset;
+        }
+    }
+
+    private void ConfigureSeatedJointLimits()
+    {
+        for (int i = 0; i < muscles.Count; i++)
+        {
+            Muscle muscle = muscles[i];
+            if (muscle.body == null || muscle.visualBone == null) continue;
+            string boneName = muscle.visualBone.name.ToLowerInvariant();
+            if (!boneName.StartsWith("thigh") && !boneName.StartsWith("shin")) continue;
+            ConfigurableJoint joint = muscle.body.GetComponent<ConfigurableJoint>();
+            if (joint == null) continue;
+            joint.angularXMotion = ConfigurableJointMotion.Limited;
+            joint.angularYMotion = ConfigurableJointMotion.Limited;
+            joint.angularZMotion = ConfigurableJointMotion.Limited;
+            joint.lowAngularXLimit = new SoftJointLimit { limit = -115f };
+            joint.highAngularXLimit = new SoftJointLimit { limit = 115f };
+            joint.angularYLimit = new SoftJointLimit { limit = 18f };
+            joint.angularZLimit = new SoftJointLimit { limit = 18f };
+        }
     }
 
     private Quaternion GetVehicleSeatRotation()
@@ -830,7 +950,10 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
         float currentHeight = Vector3.Dot(pelvisBody.position - supportHit.point, normal);
         float targetHeight = standingPelvisHeight - standingHeightReduction + bodyBobOffset;
         float heightError = targetHeight - currentHeight;
-        float normalVelocity = Vector3.Dot(pelvisBody.linearVelocity, normal);
+        Vector3 surfaceVelocity = supportHit.rigidbody != null
+            ? supportHit.rigidbody.GetPointVelocity(pelvisBody.position)
+            : Vector3.zero;
+        float normalVelocity = Vector3.Dot(pelvisBody.linearVelocity - surfaceVelocity, normal);
 
         // This force supports the mass of the full ragdoll, then behaves like a
         // damped leg spring. It is ordinary physics and works on any collider.

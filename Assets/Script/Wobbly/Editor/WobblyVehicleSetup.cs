@@ -69,7 +69,7 @@ public static class WobblyVehicleSetup
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
             AssetDatabase.SaveAssets();
-            Debug.Log("Driveable pickup setup complete. E opens doors/starts driving, F sits/stops/exits, WASD drives, and Space brakes.");
+            Debug.Log("Driveable pickup setup complete. F sits directly/gets out, Q switches seats, E starts or stops driving from the driver seat, WASD drives, and Space brakes.");
         }
         finally
         {
@@ -114,8 +114,8 @@ public static class WobblyVehicleSetup
                 root.transform.localScale = Vector3.one * 0.6f;
                 RemoveDownloadedControllers(root);
                 ConfigureRigidBody(root);
-                ReplaceBlockingCollider(root);
             }
+            ReplaceBlockingCollider(root);
 
             WobblyVehicleController controller = root.GetComponent<WobblyVehicleController>();
             if (controller == null) controller = root.AddComponent<WobblyVehicleController>();
@@ -125,7 +125,7 @@ public static class WobblyVehicleSetup
             WobblyVehicleDoor rightDoor = ConfigureSideDoor(root, controller, "DoorR", -72f);
             WobblyVehicleDoor bonnet = ConfigureBonnet(root, controller);
             WobblyVehicleDoor tailgate = ConfigureTailgate(root, controller);
-            if (!updatingExisting) ConfigureSeats(root, controller, leftDoor, rightDoor);
+            ConfigureSeats(root, controller, leftDoor, rightDoor);
 
             WheelCollider fl = FindComponent<WheelCollider>(root.transform, "FL_Col");
             WheelCollider fr = FindComponent<WheelCollider>(root.transform, "FR_Col");
@@ -135,11 +135,13 @@ public static class WobblyVehicleSetup
             ConfigureWheel(fr);
             ConfigureWheel(bl);
             ConfigureWheel(br);
+            Transform steeringWheel = FindDeepChild(root.transform, "SteeringWheel");
+            ConfigureSteeringGrips(steeringWheel, out Transform leftGrip, out Transform rightGrip);
             controller.Configure(
                 fl, fr, bl, br,
                 FindDeepChild(root.transform, "FL_Mesh"), FindDeepChild(root.transform, "FR_Mesh"),
                 FindDeepChild(root.transform, "BL_Mesh"), FindDeepChild(root.transform, "BR_Mesh"),
-                FindDeepChild(root.transform, "SteeringWheel"),
+                steeringWheel, leftGrip, rightGrip,
                 new[] { leftDoor, rightDoor, bonnet, tailgate });
 
             configured = PrefabUtility.SaveAsPrefabAsset(root, VehiclePrefabPath);
@@ -188,13 +190,53 @@ public static class WobblyVehicleSetup
         Transform container = new GameObject("TruckColliders").transform;
         container.SetParent(root.transform, false);
 
-        AddBox(container, "Underbody", new Vector3(0f, 1.08f, -0.05f), new Vector3(4.25f, 0.5f, 8.1f));
-        AddBox(container, "CabinFloor", new Vector3(0f, 1.52f, 0.75f), new Vector3(3.85f, 0.22f, 2.35f));
+        // Thick, overlapping walk surfaces leave no narrow cavity for a ragdoll
+        // foot to enter when the moving truck is settling on its suspension.
+        AddBox(container, "Underbody", new Vector3(0f, 1.05f, -0.05f), new Vector3(4.25f, 0.7f, 8.1f));
+        // Extend beneath both door thresholds and behind the old rear-left
+        // corner gap while keeping one unbroken top surface.
+        AddBox(container, "CabinWalkSurface", new Vector3(0f, 1.35f, 0.75f), new Vector3(4.9f, 0.56f, 2.8f));
         AddBox(container, "Hood", new Vector3(0f, 2.35f, 2.75f), new Vector3(4.1f, 1.45f, 2.45f));
         AddBox(container, "CabinBack", new Vector3(0f, 2.65f, -0.48f), new Vector3(4.05f, 2.15f, 0.24f));
-        AddBox(container, "BedFloor", new Vector3(0f, 1.68f, -2.5f), new Vector3(4.05f, 0.22f, 3.65f));
+        AddBox(container, "BedWalkSurface", new Vector3(0f, 1.51f, -2.5f), new Vector3(4.05f, 0.56f, 3.65f));
         AddBox(container, "BedLeft", new Vector3(-1.95f, 2.18f, -2.5f), new Vector3(0.2f, 1.15f, 3.65f));
         AddBox(container, "BedRight", new Vector3(1.95f, 2.18f, -2.5f), new Vector3(0.2f, 1.15f, 3.65f));
+    }
+
+    private static void ConfigureSteeringGrips(
+        Transform steeringWheel, out Transform leftGrip, out Transform rightGrip)
+    {
+        leftGrip = null;
+        rightGrip = null;
+        if (steeringWheel == null) return;
+
+        MeshFilter filter = steeringWheel.GetComponent<MeshFilter>();
+        Bounds bounds = filter != null && filter.sharedMesh != null
+            ? filter.sharedMesh.bounds
+            : new Bounds(Vector3.zero, new Vector3(0.8f, 0.8f, 0.2f));
+        float side = bounds.extents.x * 0.84f;
+        float height = bounds.center.y + bounds.extents.y * 0.04f;
+        float depth = bounds.center.z + bounds.extents.z * 0.2f;
+
+        leftGrip = EnsureChild(steeringWheel, "LeftHandGrip");
+        rightGrip = EnsureChild(steeringWheel, "RightHandGrip");
+        leftGrip.localPosition = new Vector3(bounds.center.x - side, height, depth);
+        rightGrip.localPosition = new Vector3(bounds.center.x + side, height, depth);
+        // Grip forward points toward the wheel centre and grip up points at
+        // the driver, which gives the IK solver a natural palm orientation.
+        leftGrip.localRotation = Quaternion.LookRotation(Vector3.right, Vector3.back);
+        rightGrip.localRotation = Quaternion.LookRotation(Vector3.left, Vector3.back);
+        leftGrip.localScale = Vector3.one;
+        rightGrip.localScale = Vector3.one;
+    }
+
+    private static Transform EnsureChild(Transform parent, string name)
+    {
+        Transform child = parent.Find(name);
+        if (child != null) return child;
+        child = new GameObject(name).transform;
+        child.SetParent(parent, false);
+        return child;
     }
 
     private static WobblyVehicleDoor ConfigureSideDoor(
@@ -279,7 +321,9 @@ public static class WobblyVehicleSetup
         if (old != null) UnityEngine.Object.DestroyImmediate(old.gameObject);
         Transform container = new GameObject("VehicleInteractions").transform;
         container.SetParent(root.transform, false);
-        CreateSeat(container, controller, leftDoor, "DriverSeat", new Vector3(-1.03f, 2.55f, 0.45f), true);
+        // Bring the driver close enough for both arms to reach the real wheel
+        // surface without stretching hand or forearm bones.
+        CreateSeat(container, controller, leftDoor, "DriverSeat", new Vector3(-1.03f, 2.55f, 0.62f), true);
         CreateSeat(container, controller, rightDoor, "PassengerSeat", new Vector3(1.03f, 2.55f, 0.45f), false);
     }
 
@@ -297,7 +341,12 @@ public static class WobblyVehicleSetup
         interaction.localPosition = new Vector3(0f, 0.15f, -0.05f);
         Transform stand = new GameObject("StandPoint").transform;
         stand.SetParent(seat, false);
-        stand.localPosition = new Vector3(0f, 0.45f, -0.72f);
+        // Keep the released ragdoll over the continuous cabin floor and well
+        // clear of the solid rear wall. The old rearward point overlapped that
+        // wall as soon as collisions were restored.
+        // Direct get-out placement is outside the open cab door, so no walking
+        // through the truck interior is needed after leaving a seat.
+        stand.localPosition = new Vector3(driver ? -1.65f : 1.65f, -1.05f, 0f);
 
         WobblyVehicleSeat vehicleSeat = seat.gameObject.AddComponent<WobblyVehicleSeat>();
         vehicleSeat.Configure(controller, door, seat, stand, interaction, driver);
