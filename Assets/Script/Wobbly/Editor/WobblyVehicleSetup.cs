@@ -69,7 +69,7 @@ public static class WobblyVehicleSetup
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
             AssetDatabase.SaveAssets();
-            Debug.Log("Driveable pickup setup complete. F sits directly/gets out, Q switches seats, E starts or stops driving from the driver seat, WASD drives, and Space brakes.");
+            Debug.Log("Driveable pickup setup complete. F drives directly/gets out, E toggles the driver door, Q switches seats, WASD drives, and Space brakes.");
         }
         finally
         {

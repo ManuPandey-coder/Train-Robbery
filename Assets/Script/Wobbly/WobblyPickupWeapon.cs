@@ -610,7 +610,8 @@ public sealed class WobblyPickupWeapon : MonoBehaviour
         string lower = objectName.ToLowerInvariant();
         if (lower.Contains("bullet") || lower.Contains("shell") || lower.Contains("ammo") ||
             lower.Contains("magazine") || lower.Contains("flash") || lower.Contains("spawn") ||
-            lower.Contains("muzzle") || lower.Contains("knife") || lower.Contains("knive"))
+            lower.Contains("muzzle") || lower.Contains("knife") || lower.Contains("knive") ||
+            lower.Contains("shop") || lower.Contains("store"))
             return false;
 
         return lower.Contains("gun") || lower.Contains("rifle") || lower.Contains("shotgun") ||

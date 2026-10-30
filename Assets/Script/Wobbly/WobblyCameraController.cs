@@ -13,7 +13,7 @@ public sealed class WobblyCameraController : MonoBehaviour
     [SerializeField] private float followSharpness = 14f;
     [SerializeField] private float collisionRadius = 0.2f;
     [SerializeField, Range(0.2f, 0.6f)] private float firstPersonForwardOffset = 0.3f;
-    [SerializeField, Range(0.05f, 0.3f)] private float firstPersonNearClip = 0.12f;
+    [SerializeField, Range(0.05f, 0.6f)] private float firstPersonNearClip = 0.32f;
     [SerializeField] private bool startInThirdPerson = true;
     [SerializeField, Range(2f, 30f)] private float recoilRecoverySharpness = 11f;
 
@@ -34,6 +34,15 @@ public sealed class WobblyCameraController : MonoBehaviour
     private WobblyVehicleInteractor vehicleInteractor;
 
     public bool IsFirstPerson => !thirdPerson;
+
+    public void ForceThirdPerson()
+    {
+        if (thirdPerson) return;
+        thirdPerson = true;
+        firstPersonAnchorReady = false;
+        followAnchorReady = false;
+        ApplyViewVisibility();
+    }
 
     public void AddRecoil(float pitchKick, float yawKick)
     {
@@ -62,6 +71,7 @@ public sealed class WobblyCameraController : MonoBehaviour
     private void Awake()
     {
         viewCamera = GetComponent<Camera>();
+        firstPersonNearClip = Mathf.Max(0.32f, firstPersonNearClip);
         thirdPerson = startInThirdPerson;
         yaw = transform.eulerAngles.y;
         Cursor.lockState = CursorLockMode.Locked;

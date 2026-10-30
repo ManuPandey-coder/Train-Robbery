@@ -57,6 +57,8 @@ public static class WobblyCharacterSetup
             scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
         }
 
+        EnsureCharacterMeshReadable();
+
         WobblyActiveRagdoll existing = Object.FindFirstObjectByType<WobblyActiveRagdoll>();
         if (existing == null)
         {
@@ -110,9 +112,15 @@ public static class WobblyCharacterSetup
         WobblyCameraController cameraController = mainCamera.GetComponent<WobblyCameraController>();
         if (cameraController == null) cameraController = mainCamera.gameObject.AddComponent<WobblyCameraController>();
         cameraController.Target = existing;
+        SerializedObject cameraSettings = new SerializedObject(cameraController);
+        SerializedProperty nearClip = cameraSettings.FindProperty("firstPersonNearClip");
+        if (nearClip != null) nearClip.floatValue = Mathf.Max(0.32f, nearClip.floatValue);
+        cameraSettings.ApplyModifiedPropertiesWithoutUndo();
 
         WobblyWeaponController weaponController = existing.GetComponent<WobblyWeaponController>();
         if (weaponController == null) weaponController = Undo.AddComponent<WobblyWeaponController>(existing.gameObject);
+        WobblyClimbController climbController = existing.GetComponent<WobblyClimbController>();
+        if (climbController == null) climbController = Undo.AddComponent<WobblyClimbController>(existing.gameObject);
         EnsurePlayerPrefab(existing);
         EnsurePlayerPrefabAnimator(movementController);
         EnsureFloorWeapons(scene, existing.transform.position);
@@ -346,6 +354,14 @@ public static class WobblyCharacterSetup
         for (int i = 0; i < transforms.Length; i++)
             if (transforms[i].name == objectName) return transforms[i];
         return null;
+    }
+
+    private static void EnsureCharacterMeshReadable()
+    {
+        ModelImporter importer = AssetImporter.GetAtPath(ModelPath) as ModelImporter;
+        if (importer == null || importer.isReadable) return;
+        importer.isReadable = true;
+        importer.SaveAndReimport();
     }
 
     private static void EnsureFloorWeapons(Scene scene, Vector3 playerPosition)

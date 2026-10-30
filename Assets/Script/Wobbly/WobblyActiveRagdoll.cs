@@ -92,12 +92,41 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     public bool IsGrounded { get; private set; }
     public bool ArmsReserved { get; set; }
     public bool SupportHandReserved { get; set; }
+    public Rigidbody PhysicsBody => pelvisBody;
+    public float StandingPelvisHeight => Mathf.Max(0.45f, standingPelvisHeight - standingHeightReduction);
+    public bool IsExternallyControlled => externalMotionControl;
     public Vector3 MovementVelocity => pelvisBody != null ? pelvisBody.linearVelocity : Vector3.zero;
     public Vector3 CameraAnchorPosition => pelvisBody != null
         ? pelvisBody.transform.position
         : pelvis != null ? pelvis.position : transform.position;
     public bool IsVehicleSeated => vehicleSeatAnchor != null;
     private WobblyWeaponController weaponController;
+
+    public void ResetUpperBodyAfterGrip()
+    {
+        ArmsReserved = false;
+        SupportHandReserved = false;
+        SetPose(leftArm, Vector3.zero);
+        SetPose(rightArm, Vector3.zero);
+        SetPose(leftForearm, Vector3.zero);
+        SetPose(rightForearm, Vector3.zero);
+        SetPose(leftHand, Vector3.zero);
+        SetPose(rightHand, Vector3.zero);
+
+        for (int i = 0; i < muscles.Count; i++)
+        {
+            Muscle muscle = muscles[i];
+            if (muscle.visualBone == null || !IsArmBone(muscle.visualBone)) continue;
+            Quaternion physicsRest = uprightTargetWorld * muscle.restRelativeToPelvis;
+            muscle.visualBone.rotation = physicsRest * muscle.visualRotationOffset;
+            if (muscle.body == null || muscle.body.isKinematic) continue;
+            muscle.body.rotation = physicsRest;
+            muscle.body.angularVelocity = Vector3.zero;
+        }
+
+        if (!dynamicPoseActive && movementAnimator != null && movementAnimator.enabled)
+            movementAnimator.Update(0f);
+    }
 
     [Header("Vehicle seated pose")]
     [Tooltip("Upper-leg rotation used while sitting in a vehicle. Exposed so unusual character rigs can be tuned.")]
@@ -199,6 +228,10 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     private bool vehicleDrivingPose;
     private bool weaponWasEnabledBeforeSeat;
     private bool animatorWasEnabledBeforeSeat;
+    private RigidbodyInterpolation pelvisInterpolationBeforeSeat;
+    private bool externalMotionControl;
+    private bool animatorWasEnabledBeforeExternalControl;
+    private RigidbodyInterpolation pelvisInterpolationBeforeExternalControl;
     private Vector3 leftSwingStartOffset;
     private Vector3 rightSwingStartOffset;
     private Vector3 previousLeftStepTarget;
@@ -305,6 +338,14 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     {
         if (weaponController == null) weaponController = GetComponent<WobblyWeaponController>();
         UpdateProfileInput();
+        if (externalMotionControl)
+        {
+            moveInput = Vector2.zero;
+            runInput = false;
+            flopTimer = 0f;
+            jumpSupportCooldown = 0f;
+            return;
+        }
         if (IsVehicleSeated)
         {
             moveInput = Vector2.zero;
@@ -343,6 +384,7 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     private void FixedUpdate()
     {
         if (pelvisBody == null) return;
+        if (externalMotionControl) return;
         if (IsVehicleSeated)
         {
             UpdateVehicleSeatPose();
@@ -381,6 +423,13 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     private void LateUpdate()
     {
         if (pelvisBody == null || pelvis == null) return;
+
+        if (externalMotionControl)
+        {
+            ApplyExternalControlVisualPose();
+            UpdateHeadLook();
+            return;
+        }
 
         if (!dynamicPoseActive && !IsVehicleSeated && movementAnimator != null && movementAnimator.enabled)
         {
@@ -489,13 +538,55 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
         }
         else
         {
-            ConfigureLimbSimulation(false);
-            if (movementAnimator != null)
+            RestoreAnimatedPose(!IsVehicleSeated && !externalMotionControl);
+        }
+    }
+
+    private void ResetProceduralPoseOffsets()
+    {
+        for (int i = 0; i < muscles.Count; i++) muscles[i].proceduralEuler = Vector3.zero;
+        bodyBobOffset = 0f;
+        bodyBobVelocity = 0f;
+        gaitPhase = 0f;
+        currentGaitFrequency = 0f;
+        ArmsReserved = false;
+        SupportHandReserved = false;
+        ClearFootPlants();
+    }
+
+    private void RestoreAnimatedPose(bool enableAnimator)
+    {
+        ResetProceduralPoseOffsets();
+        ConfigureLimbSimulation(false);
+        if (movementAnimator != null)
+        {
+            movementAnimator.enabled = enableAnimator;
+            if (enableAnimator)
             {
-                movementAnimator.enabled = !IsVehicleSeated;
                 movementAnimator.Rebind();
+                movementAnimator.Play(0, 0, 0f);
+                movementAnimator.Update(0f);
+                AnchorAnimatedVisual();
                 movementAnimator.Update(0f);
             }
+        }
+        SynchronizePhysicsLimbsToVisuals();
+        ConfigureLimbSimulation(false);
+        headSmoothingReady = false;
+    }
+
+    private void ApplyExternalControlVisualPose()
+    {
+        if (visualRoot != null) visualRoot.position += pelvisBody.transform.position - pelvis.position;
+        pelvis.rotation = movementFacingWorld * pelvisVisualRotationOffset;
+        AlignHipToPelvis(leftHip, leftHipRestPositionInPelvis, leftHipRestRelativeToPelvis);
+        AlignHipToPelvis(rightHip, rightHipRestPositionInPelvis, rightHipRestRelativeToPelvis);
+        for (int i = 0; i < muscles.Count; i++)
+        {
+            Muscle muscle = muscles[i];
+            if (muscle.visualBone == null) continue;
+            muscle.visualBone.rotation = movementFacingWorld * muscle.restRelativeToPelvis *
+                                         muscle.visualRotationOffset;
         }
     }
 
@@ -535,8 +626,11 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
             else
             {
                 if (joint != null) joint.connectedBody = null;
-                body.linearVelocity = Vector3.zero;
-                body.angularVelocity = Vector3.zero;
+                if (!body.isKinematic)
+                {
+                    body.linearVelocity = Vector3.zero;
+                    body.angularVelocity = Vector3.zero;
+                }
                 body.useGravity = false;
                 body.detectCollisions = false;
                 body.isKinematic = true;
@@ -670,6 +764,84 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
 
     private float ActiveMoveSpeed => Mathf.Max(0f, runInput ? runSpeed : walkSpeed);
 
+    public bool BeginExternalClimbControl()
+    {
+        if (pelvisBody == null || IsVehicleSeated || externalMotionControl) return false;
+        externalMotionControl = true;
+        animatorWasEnabledBeforeExternalControl = movementAnimator != null && movementAnimator.enabled;
+        if (movementAnimator != null) movementAnimator.enabled = false;
+        if (weaponController == null) weaponController = GetComponent<WobblyWeaponController>();
+        if (weaponController != null) weaponController.PrepareForVehicleSeat();
+
+        ResetProceduralPoseOffsets();
+        ConfigureLimbSimulation(false);
+        pelvisInterpolationBeforeExternalControl = pelvisBody.interpolation;
+        pelvisBody.interpolation = RigidbodyInterpolation.None;
+        pelvisBody.linearVelocity = Vector3.zero;
+        pelvisBody.angularVelocity = Vector3.zero;
+        pelvisBody.useGravity = false;
+        pelvisBody.detectCollisions = false;
+        pelvisBody.isKinematic = true;
+        IsGrounded = false;
+        hasSupportSurface = false;
+        Physics.SyncTransforms();
+        return true;
+    }
+
+    public void SetExternalClimbPose(Vector3 pelvisPosition, Vector3 facing)
+    {
+        if (!externalMotionControl || pelvisBody == null) return;
+        Vector3 flatFacing = Vector3.ProjectOnPlane(facing, Vector3.up);
+        if (flatFacing.sqrMagnitude < 0.001f) flatFacing = GetCurrentBodyFacing();
+        flatFacing.Normalize();
+        float yaw = Vector3.SignedAngle(restForward, flatFacing, Vector3.up);
+        Quaternion rotation = Quaternion.AngleAxis(yaw, Vector3.up) * balanceRestWorld;
+        pelvisBody.position = pelvisPosition;
+        pelvisBody.rotation = rotation;
+        pelvisBody.transform.SetPositionAndRotation(pelvisPosition, rotation);
+        desiredFacing = flatFacing;
+        movementFacingWorld = rotation;
+        uprightTargetWorld = rotation;
+    }
+
+    public void FinishExternalClimbControl(
+        Vector3 pelvisPosition, Vector3 facing, Vector3 inheritedVelocity)
+    {
+        if (!externalMotionControl || pelvisBody == null) return;
+        SetExternalClimbPose(pelvisPosition, facing);
+        externalMotionControl = false;
+
+        ResetProceduralPoseOffsets();
+        ApplyExternalControlVisualPose();
+        SynchronizePhysicsLimbsToVisuals();
+
+        pelvisBody.isKinematic = false;
+        pelvisBody.useGravity = true;
+        pelvisBody.detectCollisions = true;
+        pelvisBody.interpolation = pelvisInterpolationBeforeExternalControl;
+        pelvisBody.linearVelocity = inheritedVelocity;
+        pelvisBody.angularVelocity = Vector3.zero;
+
+        if (dynamicPoseActive)
+        {
+            ConfigureLimbSimulation(true);
+            for (int i = 0; i < muscles.Count; i++)
+            {
+                if (muscles[i].body == null) continue;
+                muscles[i].body.linearVelocity = inheritedVelocity;
+                muscles[i].body.angularVelocity = Vector3.zero;
+            }
+        }
+        else
+        {
+            RestoreAnimatedPose(animatorWasEnabledBeforeExternalControl);
+        }
+
+        jumpSupportCooldown = 0f;
+        headSmoothingReady = false;
+        Physics.SyncTransforms();
+    }
+
     public bool EnterVehicleSeat(Transform seatAnchor, Rigidbody vehicleBody)
     {
         if (seatAnchor == null || pelvisBody == null || IsVehicleSeated) return false;
@@ -716,6 +888,8 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
         pelvisBody.angularVelocity = Vector3.zero;
         pelvisBody.useGravity = false;
         pelvisBody.detectCollisions = false;
+        pelvisInterpolationBeforeSeat = pelvisBody.interpolation;
+        pelvisBody.interpolation = RigidbodyInterpolation.None;
         pelvisBody.isKinematic = true;
 
         ClearFootPlants();
@@ -775,6 +949,12 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
 
     public void ExitVehicleSeat(Vector3 standPosition, Quaternion standRotation)
     {
+        ExitVehicleSeat(standPosition, standRotation, Vector3.zero);
+    }
+
+    public void ExitVehicleSeat(
+        Vector3 standPosition, Quaternion standRotation, Vector3 additionalVelocity)
+    {
         if (!IsVehicleSeated || pelvisBody == null) return;
 
         Vector3 oldPelvisPosition = pelvisBody.position;
@@ -787,6 +967,7 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
         Vector3 inheritedVelocity = seatedVehicleBody != null
             ? seatedVehicleBody.GetPointVelocity(standPosition)
             : Vector3.zero;
+        inheritedVelocity += additionalVelocity;
 
         for (int i = 0; i < muscles.Count; i++)
         {
@@ -809,9 +990,10 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
         pelvisBody.transform.SetPositionAndRotation(standPosition, targetRotation);
         pelvisBody.useGravity = true;
         pelvisBody.detectCollisions = true;
+        pelvisBody.interpolation = pelvisInterpolationBeforeSeat;
+        pelvisBody.isKinematic = false;
         pelvisBody.linearVelocity = inheritedVelocity;
         pelvisBody.angularVelocity = Vector3.zero;
-        pelvisBody.isKinematic = false;
         movementFacingWorld = targetRotation;
         uprightTargetWorld = targetRotation;
         desiredFacing = standForward;
@@ -819,21 +1001,22 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
         vehicleSeatAnchor = null;
         seatedVehicleBody = null;
         vehicleDrivingPose = false;
-        ConfigureLimbSimulation(dynamicPoseActive);
-        if (!dynamicPoseActive && movementAnimator != null)
+        ResetProceduralPoseOffsets();
+        if (dynamicPoseActive)
         {
-            movementAnimator.enabled = animatorWasEnabledBeforeSeat;
-            if (movementAnimator.enabled) movementAnimator.Update(0f);
+            SynchronizePhysicsLimbsToVisuals();
+            ConfigureLimbSimulation(true);
+            for (int i = 0; i < muscles.Count; i++)
+            {
+                if (muscles[i].body == null) continue;
+                muscles[i].body.linearVelocity = inheritedVelocity;
+                muscles[i].body.angularVelocity = Vector3.zero;
+            }
         }
+        else RestoreAnimatedPose(animatorWasEnabledBeforeSeat);
         // Leaving a seat is not a jump. Ground support must be available on the
         // first FixedUpdate or a moving cabin can pass beneath the player.
         jumpSupportCooldown = 0f;
-        SetPose(leftThigh, Vector3.zero);
-        SetPose(rightThigh, Vector3.zero);
-        SetPose(leftShin, Vector3.zero);
-        SetPose(rightShin, Vector3.zero);
-        SetPose(leftFoot, Vector3.zero);
-        SetPose(rightFoot, Vector3.zero);
         if (weaponController != null) weaponController.enabled = weaponWasEnabledBeforeSeat;
         Physics.SyncTransforms();
     }
@@ -849,10 +1032,30 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
         Vector3 seatForward = Vector3.ProjectOnPlane(vehicleSeatAnchor.forward, Vector3.up);
         if (seatForward.sqrMagnitude < 0.01f) seatForward = restForward;
         desiredFacing = seatForward.normalized;
-        movementFacingWorld = GetVehicleSeatRotation();
+        Vector3 oldPelvisPosition = pelvisBody.position;
+        Quaternion oldPelvisRotation = pelvisBody.rotation;
+        Quaternion targetRotation = GetVehicleSeatRotation();
+        Quaternion rotationDelta = targetRotation * Quaternion.Inverse(oldPelvisRotation);
+        Vector3 seatVelocity = seatedVehicleBody != null
+            ? seatedVehicleBody.GetPointVelocity(vehicleSeatAnchor.position)
+            : Vector3.zero;
+        for (int i = 0; i < muscles.Count; i++)
+        {
+            Rigidbody limb = muscles[i].body;
+            if (limb == null) continue;
+            limb.position = vehicleSeatAnchor.position +
+                            rotationDelta * (limb.position - oldPelvisPosition);
+            limb.rotation = rotationDelta * limb.rotation;
+            limb.linearVelocity = seatVelocity;
+            limb.angularVelocity = seatedVehicleBody != null
+                ? seatedVehicleBody.angularVelocity : Vector3.zero;
+        }
+
+        movementFacingWorld = targetRotation;
         uprightTargetWorld = movementFacingWorld;
-        pelvisBody.MovePosition(vehicleSeatAnchor.position);
-        pelvisBody.MoveRotation(movementFacingWorld);
+        pelvisBody.position = vehicleSeatAnchor.position;
+        pelvisBody.rotation = movementFacingWorld;
+        pelvisBody.transform.SetPositionAndRotation(vehicleSeatAnchor.position, movementFacingWorld);
 
         SetPose(leftThigh, seatedThighEuler);
         SetPose(rightThigh, seatedThighEuler);
@@ -2108,6 +2311,12 @@ public sealed class WobblyActiveRagdoll : MonoBehaviour
     {
         return bone == leftThigh || bone == leftShin || bone == leftFoot ||
                bone == rightThigh || bone == rightShin || bone == rightFoot;
+    }
+
+    private bool IsArmBone(Transform bone)
+    {
+        return bone == leftArm || bone == leftForearm || bone == leftHand ||
+               bone == rightArm || bone == rightForearm || bone == rightHand;
     }
 
     private static float MassForBone(string boneName)

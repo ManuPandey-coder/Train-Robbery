@@ -46,6 +46,8 @@ public sealed class WobblyVehicleController : MonoBehaviour
 
     private void Awake()
     {
+        if (GetComponent<WobblyClimbableSurface>() == null)
+            gameObject.AddComponent<WobblyClimbableSurface>();
         body = GetComponent<Rigidbody>();
         body.centerOfMass = new Vector3(0f, 0.85f, -0.15f);
         body.interpolation = RigidbodyInterpolation.Interpolate;

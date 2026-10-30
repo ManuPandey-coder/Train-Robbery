@@ -18,6 +18,7 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
     private float nextSearchTime;
     private GUIStyle titleStyle;
     private GUIStyle hintStyle;
+    private WobblyCameraController cameraController;
 
     public bool IsSeated => currentSeat != null;
     public bool IsDriving => currentSeat != null && currentSeat.Vehicle != null &&
@@ -28,6 +29,8 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
     {
         player = GetComponent<WobblyActiveRagdoll>();
         seatSearchRadius = Mathf.Max(2.6f, seatSearchRadius);
+        Camera camera = Camera.main;
+        cameraController = camera != null ? camera.GetComponent<WobblyCameraController>() : null;
     }
 
     private void Update()
@@ -39,8 +42,8 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
             if (Input.GetKeyDown(switchSeatKey)) SwitchSeat();
             if (Input.GetKeyDown(doorKey) && currentSeat.IsDriverSeat)
             {
-                if (IsDriving) currentSeat.StopDriving();
-                else currentSeat.BeginDriving();
+                if (IsDriving && currentSeat.AccessDoor != null) currentSeat.AccessDoor.Toggle();
+                else if (!IsDriving) currentSeat.BeginDriving();
             }
             if (Input.GetKeyDown(sitKey)) StandUp();
             return;
@@ -62,6 +65,8 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
         nearbySeat = null;
         nearbyDoor = null;
         float bestSeat = seatSearchRadius * seatSearchRadius;
+        float bestDriverSeat = seatSearchRadius * seatSearchRadius;
+        WobblyVehicleSeat closestDriverSeat = null;
         float bestDoor = doorReach * doorReach;
 
         WobblyVehicleSeat[] seats = Object.FindObjectsByType<WobblyVehicleSeat>(FindObjectsSortMode.None);
@@ -69,10 +74,16 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
         {
             if (!seats[i].CanSit(player)) continue;
             float distance = (seats[i].InteractionPoint.position - playerPosition).sqrMagnitude;
+            if (seats[i].IsDriverSeat && distance < bestDriverSeat)
+            {
+                bestDriverSeat = distance;
+                closestDriverSeat = seats[i];
+            }
             if (distance >= bestSeat) continue;
             bestSeat = distance;
             nearbySeat = seats[i];
         }
+        if (closestDriverSeat != null) nearbySeat = closestDriverSeat;
 
         WobblyVehicleDoor[] doors = Object.FindObjectsByType<WobblyVehicleDoor>(FindObjectsSortMode.None);
         for (int i = 0; i < doors.Length; i++)
@@ -91,6 +102,10 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
             currentSeat = seat;
             nearbySeat = null;
             nearbyDoor = null;
+            if (seat.IsDriverSeat) seat.BeginDriving();
+            if (cameraController == null && Camera.main != null)
+                cameraController = Camera.main.GetComponent<WobblyCameraController>();
+            if (cameraController != null) cameraController.ForceThirdPerson();
         }
     }
 
@@ -133,8 +148,11 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
             float drivingButtonWidth = (width - 48f) / 3f;
             if (GUI.Button(new Rect(x + 12f, y + 45f, drivingButtonWidth, 52f), "Switch Seat  [Q]"))
                 SwitchSeat();
-            if (GUI.Button(new Rect(x + 24f + drivingButtonWidth, y + 45f, drivingButtonWidth, 52f), "Stop Driving  [E]"))
-                currentSeat.StopDriving();
+            string doorLabel = currentSeat.AccessDoor != null && currentSeat.AccessDoor.IsOpen
+                ? "Close Door  [E]" : "Open Door  [E]";
+            if (GUI.Button(new Rect(x + 24f + drivingButtonWidth, y + 45f, drivingButtonWidth, 52f), doorLabel) &&
+                currentSeat.AccessDoor != null)
+                currentSeat.AccessDoor.Toggle();
             if (GUI.Button(new Rect(x + 36f + drivingButtonWidth * 2f, y + 45f, drivingButtonWidth, 52f), "Get Out  [F]"))
                 StandUp();
             return;
@@ -164,9 +182,9 @@ public sealed class WobblyVehicleInteractor : MonoBehaviour
         if (nearbySeat != null)
         {
             GUI.Label(new Rect(x + 12f, y + 8f, width - 24f, 25f),
-                "Truck nearby — sit directly", titleStyle);
+                "Truck nearby — drive directly", titleStyle);
             if (GUI.Button(new Rect(x + 12f, y + 38f, width - 24f, 46f),
-                    "Sit in " + nearbySeat.SeatName + "  [F]"))
+                    "Drive Truck  [F]"))
                 SitDown(nearbySeat);
         }
         else

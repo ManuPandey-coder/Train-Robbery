@@ -33,7 +33,6 @@ public sealed class WobblyVehicleSeat : MonoBehaviour
     public bool CanSit(WobblyActiveRagdoll player)
     {
         if (player == null || Occupant != null || player.IsVehicleSeated) return false;
-        if (accessDoor != null && !accessDoor.IsOpen) return false;
         return Vector3.Distance(player.Pelvis.position, InteractionPoint.position) <=
                Mathf.Max(2.6f, interactionDistance);
     }
@@ -73,12 +72,21 @@ public sealed class WobblyVehicleSeat : MonoBehaviour
     public void StandUp()
     {
         if (Occupant == null) return;
+        bool jumpOut = accessDoor != null && accessDoor.IsOpen;
         StopDriving();
         if (accessDoor != null) accessDoor.SetOpen(true);
         Transform exit = standPoint != null ? standPoint : transform;
         WobblyActiveRagdoll player = Occupant;
         Occupant = null;
-        player.ExitVehicleSeat(exit.position, exit.rotation);
+        Vector3 outward = driverSeat && vehicle != null
+            ? Vector3.ProjectOnPlane(-vehicle.transform.right, Vector3.up)
+            : seatAnchor != null
+                ? Vector3.ProjectOnPlane(exit.position - seatAnchor.position, Vector3.up)
+                : Vector3.ProjectOnPlane(exit.right, Vector3.up);
+        if (outward.sqrMagnitude < 0.01f) outward = exit.right;
+        outward.Normalize();
+        Vector3 jumpVelocity = jumpOut ? outward * 7.5f + Vector3.up * 4.8f : Vector3.zero;
+        player.ExitVehicleSeat(exit.position, exit.rotation, jumpVelocity);
     }
 
     private void OnDrawGizmosSelected()

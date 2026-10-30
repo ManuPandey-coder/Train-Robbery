@@ -411,7 +411,11 @@ public sealed class WobblyWeaponController : MonoBehaviour
         pickupProgress = 0f;
         aimBlend = 0f;
         holdPoseReady = false;
-        if (ragdoll != null) { ragdoll.ArmsReserved = false; ragdoll.SupportHandReserved = false; }
+        leftFingerBlend = 0f;
+        rightFingerBlend = 0f;
+        PoseFingers(leftFingerBones, 0f, null);
+        PoseFingers(rightFingerBones, 0f, null);
+        if (ragdoll != null) ragdoll.ResetUpperBodyAfterGrip();
     }
 
     public bool BeginReload()
@@ -559,8 +563,7 @@ public sealed class WobblyWeaponController : MonoBehaviour
             ResetLeftShoulder();
             PoseFingers(leftFingerBones, 0f, null);
             PoseFingers(rightFingerBones, 0f, null);
-            ragdoll.ArmsReserved = false;
-            ragdoll.SupportHandReserved = false;
+            ragdoll.ResetUpperBodyAfterGrip();
             return;
         }
 
@@ -579,6 +582,43 @@ public sealed class WobblyWeaponController : MonoBehaviour
             leftGrip.rotation, 1f);
         SolveArmIk(rightArmIk, rightGrip.position, wheelForward, bodyRight,
             rightGrip.rotation, 1f);
+        PoseFingers(leftFingerBones, 1f, null);
+        PoseFingers(rightFingerBones, 1f, null);
+        ragdoll.ArmsReserved = true;
+        ragdoll.SupportHandReserved = true;
+    }
+
+    public void ApplyClimbHandPose(
+        Vector3 leftHandTarget, Vector3 rightHandTarget, Vector3 surfaceNormal, bool active)
+    {
+        if (ragdoll == null) ragdoll = GetComponent<WobblyActiveRagdoll>();
+        if (ragdoll == null) return;
+
+        if (!active)
+        {
+            ResetLeftShoulder();
+            PoseFingers(leftFingerBones, 0f, null);
+            PoseFingers(rightFingerBones, 0f, null);
+            ragdoll.ArmsReserved = false;
+            ragdoll.SupportHandReserved = false;
+            return;
+        }
+
+        if (!leftArmIk.valid || !rightArmIk.valid) CacheArmIk();
+        if (leftFingerBones.Length == 0 || rightFingerBones.Length == 0) CacheFingerBones();
+        ResetLeftShoulder();
+
+        Vector3 wallNormal = surfaceNormal.sqrMagnitude > 0.001f
+            ? surfaceNormal.normalized : -ragdoll.FacingDirection;
+        Vector3 bodyForward = Vector3.ProjectOnPlane(-wallNormal, Vector3.up).normalized;
+        if (bodyForward.sqrMagnitude < 0.001f) bodyForward = ragdoll.FacingDirection;
+        Vector3 bodyRight = Vector3.Cross(Vector3.up, bodyForward).normalized;
+        Quaternion leftFrame = Quaternion.LookRotation(Vector3.up, -wallNormal);
+        Quaternion rightFrame = Quaternion.LookRotation(Vector3.up, -wallNormal) *
+                                Quaternion.AngleAxis(180f, Vector3.up);
+
+        SolveArmIk(leftArmIk, leftHandTarget, bodyForward, bodyRight, leftFrame, 1f);
+        SolveArmIk(rightArmIk, rightHandTarget, bodyForward, bodyRight, rightFrame, 1f);
         PoseFingers(leftFingerBones, 1f, null);
         PoseFingers(rightFingerBones, 1f, null);
         ragdoll.ArmsReserved = true;
