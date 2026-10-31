@@ -4,9 +4,9 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Active-ragdoll player: a stable physics core (pelvis) + ragdoll limbs, driven either by an
-/// Animator (default) or by a procedural physics gait. Also handles vehicle seats, external
-/// climbing control and train-wheel knockdown.
+/// Two distinct physics modes: a normal Rigidbody capsule for Animator locomotion, and a
+/// separate articulated ragdoll for knockdowns / the optional procedural physics gait.
+/// Handles vehicle seats, climbing, weapon grips, and train-wheel knockdown.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(-50)]
@@ -23,7 +23,7 @@ public sealed class PlayerController : MonoBehaviour
         [Min(0f)] public float walkSpeed = 5.5f;
         [Tooltip("Running target speed (m/s) while holding Shift.")]
         [Min(0f)] public float runSpeed = 9f;
-        [Tooltip("How quickly the whole ragdoll reaches the target speed (m/s²). Not a speed multiplier.")]
+        [Tooltip("How quickly the active player motor reaches its target speed (m/s²).")]
         [Range(2f, 30f)] public float acceleration = 24f;
         [Tooltip("Extra acceleration available while running.")]
         [Range(1f, 2f)] public float runAccelerationMultiplier = 1.25f;
@@ -154,6 +154,8 @@ public sealed class PlayerController : MonoBehaviour
 
     [Header("Active Ragdoll")]
     [SerializeField] private RagdollSettings ragdoll = new RagdollSettings();
+    [Tooltip("Optional key to toggle knockdown/recovery for testing. None disables the shortcut.")]
+    [SerializeField] private KeyCode ragdollToggleKey = KeyCode.None;
 
     [Header("Vehicle Seats")]
     [Tooltip("How fast (m/s) the player slides to a newly changed seat position, e.g. when you start driving.")]
@@ -181,7 +183,11 @@ public sealed class PlayerController : MonoBehaviour
     public bool IsGrounded { get; private set; }
     public bool ArmsReserved { get; set; }
     public bool SupportHandReserved { get; set; }
+    // Returns the currently controlled Rigidbody. Do not cache this reference across mode changes.
     public Rigidbody PhysicsBody => pelvisBody;
+    public Rigidbody NormalCapsuleBody => normalBody;
+    public Rigidbody RagdollBody => ragdollBody;
+    public bool IsNormalCapsuleActive => pelvisBody == normalBody && !knockdownActive;
     public float StandingPelvisHeight => Mathf.Max(0.45f, standingPelvisHeight - gait.standingHeightReduction);
     public bool IsExternallyControlled => externalMotionControl;
     public Vector3 MovementVelocity => pelvisBody != null ? pelvisBody.linearVelocity : Vector3.zero;
@@ -266,7 +272,8 @@ public sealed class PlayerController : MonoBehaviour
     // Bones
     private Transform physicsRoot, visualRoot, pelvis, chest, head, leftHip, rightHip;
     private Transform leftArm, leftShoulder, rightArm, leftForearm, rightForearm, leftHand, rightHand;
-    private Rigidbody pelvisBody;
+    private Rigidbody pelvisBody, normalBody, ragdollBody;
+    private CapsuleCollider normalCapsule;
     private readonly Vector3[] hipRestPos = new Vector3[2];
     private readonly Quaternion[] hipRestRot = new Quaternion[2];
     private Quaternion pelvisVisualRotationOffset, headRestRelativeToPelvis, headRestLocalRotation;
@@ -351,9 +358,13 @@ public sealed class PlayerController : MonoBehaviour
         float legLength = EstimateLegLength();
         groundProbeDistance = Mathf.Max(0.65f, legLength + 0.25f);
         standingPelvisHeight = Mathf.Clamp(legLength, renderedBodyHeight * 0.35f, renderedBodyHeight * 0.58f);
-        totalRagdollMass = pelvisBody.mass;
+        totalRagdollMass = ragdollBody.mass;
         foreach (Muscle m in muscles) totalRagdollMass += m.body.mass;
 
+        BuildNormalCapsule();
+        DeactivateBody(ragdollBody);
+        pelvisBody = normalBody;
+        IgnoreInternalCollisions();
         CacheMovementAnimator();
         CacheVisualRestPose();
         if (head != null) headRestLocalRotation = head.localRotation;
@@ -372,6 +383,13 @@ public sealed class PlayerController : MonoBehaviour
         if (MenuManager.BlocksGameplay) { ClearInput(); return; }
         if (weaponController == null) weaponController = GetComponent<WeaponController>();
         if (!knockdownActive && recoveryPoseLockFrames > 0) recoveryPoseLockFrames--;
+        if (ragdollToggleKey != KeyCode.None && Input.GetKeyDown(ragdollToggleKey) &&
+            !IsVehicleSeated && !externalMotionControl)
+        {
+            if (knockdownActive) RecoverFromRagdoll();
+            else TriggerRagdoll();
+            return;
+        }
 
         if (knockdownActive)
         {
@@ -383,6 +401,17 @@ public sealed class PlayerController : MonoBehaviour
         }
 
         UpdatePoseHotkey();
+
+        if (externalMotionControl && (movementAnimator == null || !movementAnimator.enabled || !externalClimbAnimatorActive))
+        {
+            Debug.LogWarning("Climb animation stopped unexpectedly. Recovering normal player control.", this);
+            FinishExternalClimbControl(pelvisBody.position, GetCurrentBodyFacing(), Vector3.zero);
+        }
+        if (!externalMotionControl && !IsVehicleSeated && !dynamicPoseActive &&
+            movementAnimator != null && movementAnimator.runtimeAnimatorController != null && !movementAnimator.enabled)
+        {
+            RestoreAnimatedPose(true);
+        }
 
         if (externalMotionControl || IsVehicleSeated)
         {
@@ -425,7 +454,7 @@ public sealed class PlayerController : MonoBehaviour
         }
         else bodyBobOffset = bodyBobVelocity = 0f;
 
-        DriveLegSupport();
+        if (dynamicPoseActive) DriveLegSupport(); // capsule collision supports ordinary movement
         DriveMovement(move);
         UpdateFacingFromMovement(move);
         if (dynamicPoseActive)
@@ -447,8 +476,11 @@ public sealed class PlayerController : MonoBehaviour
         }
         if (externalMotionControl)
         {
-            if (externalClimbAnimatorActive) AnchorAnimatedVisualAt(pelvisBody.transform.position, movementFacingWorld);
-            else ApplyKinematicVisualPose(pelvisBody.transform.position, movementFacingWorld);
+            // Climbing on a moving train can have a newer render pose than the physics sample.
+            Vector3 climbRenderPosition = externalRenderPoseValid
+                ? externalRenderPelvisPosition : pelvisBody.transform.position;
+            if (externalClimbAnimatorActive) AnchorAnimatedVisualAt(climbRenderPosition, movementFacingWorld);
+            else ApplyKinematicVisualPose(climbRenderPosition, movementFacingWorld);
             UpdateHeadLook();
             return;
         }
@@ -554,25 +586,34 @@ public sealed class PlayerController : MonoBehaviour
 
     private void SetPoseDriver(bool usePhysicsPose)
     {
+        if (poseDriverInitialized && (knockdownActive || IsVehicleSeated || externalMotionControl)) return;
         CacheMovementAnimator();
         if (!usePhysicsPose && (movementAnimator == null || movementAnimator.runtimeAnimatorController == null))
             usePhysicsPose = true;
         if (poseDriverInitialized && dynamicPoseActive == usePhysicsPose) return;
 
+        if (usePhysicsPose)
+        {
+            // Preserve the current animated posture, then transfer momentum to the ragdoll motor.
+            SwitchToRagdollBody();
+            SynchronizePhysicsLimbsToVisuals();
+            if (movementAnimator != null) movementAnimator.enabled = false;
+            ConfigureLimbSimulation(true);
+        }
+        else
+        {
+            // Shut off ALL ragdoll collisions before switching to the standing capsule.
+            ConfigureLimbSimulation(false);
+            SwitchToCapsuleBody();
+            RestoreAnimatedPose(true);
+        }
         dynamicPoseActive = usePhysicsPose;
         poseDriverInitialized = true;
         headSmoothingReady = false;
         jumpAnimationActive = false;
         if (movementAnimator != null) movementAnimator.speed = 1f;
         ClearFootPlants();
-
-        if (dynamicPoseActive)
-        {
-            if (movementAnimator != null) movementAnimator.enabled = false;
-            SynchronizePhysicsLimbsToVisuals();
-            ConfigureLimbSimulation(true);
-        }
-        else RestoreAnimatedPose(!IsVehicleSeated && !externalMotionControl);
+        Physics.SyncTransforms();
     }
 
     private void CacheMovementAnimator()
@@ -597,22 +638,32 @@ public sealed class PlayerController : MonoBehaviour
     private void RestoreAnimatedPose(bool enableAnimator)
     {
         ResetProceduralPoseOffsets();
+        jumpAnimationActive = false;
         ConfigureLimbSimulation(false);
+
+        if (movementAnimator != null) movementAnimator.enabled = false;
+        // Restore ALL local transforms, including bones not keyed by any animation clip.
         RestoreVisualRestPose();
         if (movementAnimator != null)
         {
             movementAnimator.enabled = enableAnimator;
-            if (enableAnimator)
+            if (enableAnimator && movementAnimator.runtimeAnimatorController != null)
             {
                 movementAnimator.Rebind();
-                movementAnimator.Play(0, 0, 0f);
-                movementAnimator.Update(0f);
-                AnchorAnimatedVisualAt(pelvisBody.transform.position, movementFacingWorld);
+                movementAnimator.speed = 1f;
+                int traversal = movementAnimator.GetLayerIndex("Traversal");
+                if (traversal >= 0) movementAnimator.SetLayerWeight(traversal, 0f);
+                movementAnimator.SetBool(AnimatorJumping, false);
+                movementAnimator.SetFloat(AnimatorSpeed, 0f);
                 movementAnimator.Update(0f);
             }
         }
+        if (enableAnimator && movementAnimator != null && movementAnimator.runtimeAnimatorController != null)
+            AnchorAnimatedVisualAt(pelvisBody.position, movementFacingWorld);
+        else
+            ApplyKinematicVisualPose(pelvisBody.position, movementFacingWorld);
+
         SynchronizePhysicsLimbsToVisuals();
-        ConfigureLimbSimulation(false);
         headSmoothingReady = false;
     }
 
@@ -674,6 +725,106 @@ public sealed class PlayerController : MonoBehaviour
                 if (col != null) col.enabled = false;
             }
         }
+        // Unity can clear per-collider ignored pairs when a collider is disabled/re-enabled.
+        // Reapply self-collision filtering every time ragdoll bodies become active.
+        if (dynamicLimbs && !IsVehicleSeated) IgnoreInternalCollisions();
+    }
+
+    // =====================================================================================
+    //  INDEPENDENT CAPSULE / RAGDOLL PHYSICS MOTORS
+    // =====================================================================================
+
+    private void BuildNormalCapsule()
+    {
+        Transform capsuleRoot = new GameObject("NormalCapsule").transform;
+        capsuleRoot.SetParent(physicsRoot, false);
+        capsuleRoot.SetPositionAndRotation(ragdollBody.position, ragdollBody.rotation);
+        capsuleRoot.localScale = Vector3.one;
+        normalBody = ConfigureBody(capsuleRoot, 12f, true);
+        normalBody.linearDamping = 0.15f;
+        // Bone-space pelvis axes are not always world-upright. Keep the collider's Y axis
+        // upright even if the model imports with a 90-degree armature rotation.
+        Transform shape = new GameObject("CapsuleShape").transform;
+        shape.SetParent(capsuleRoot, false);
+        shape.localPosition = Vector3.zero;
+        shape.localRotation = Quaternion.Inverse(balanceRestWorld);
+        shape.localScale = Vector3.one;
+        normalCapsule = shape.gameObject.AddComponent<CapsuleCollider>();
+        normalCapsule.direction = 1;
+        normalCapsule.center = Vector3.zero;
+        normalCapsule.radius = Mathf.Clamp(renderedBodyHeight * 0.14f, 0.18f, 0.30f);
+        normalCapsule.height = Mathf.Max(normalCapsule.radius * 2.1f, StandingPelvisHeight * 2f);
+        normalCapsule.contactOffset = 0.01f;
+    }
+
+    private static void DeactivateBody(Rigidbody body)
+    {
+        if (body == null) return;
+        body.linearVelocity = Vector3.zero;
+        body.angularVelocity = Vector3.zero;
+        body.isKinematic = true;
+        body.useGravity = false;
+        body.detectCollisions = false;
+        Collider collider = body.GetComponentInChildren<Collider>(true);
+        if (collider != null) collider.enabled = false;
+    }
+
+    private static void ActivateBody(Rigidbody body)
+    {
+        if (body == null) return;
+        body.isKinematic = false;
+        body.useGravity = true;
+        body.detectCollisions = true;
+        body.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+        Collider collider = body.GetComponentInChildren<Collider>(true);
+        if (collider != null) collider.enabled = true;
+    }
+
+    private void SwitchToRagdollBody()
+    {
+        if (pelvisBody == ragdollBody) return;
+        Vector3 position = pelvisBody.position;
+        Quaternion rotation = pelvisBody.rotation;
+        Vector3 velocity = pelvisBody.linearVelocity;
+        DeactivateBody(normalBody);
+        ragdollBody.transform.SetPositionAndRotation(position, rotation);
+        ActivateBody(ragdollBody);
+        ragdollBody.linearVelocity = velocity;
+        ragdollBody.angularVelocity = Vector3.zero;
+        pelvisBody = ragdollBody;
+        IsGrounded = hasSupportSurface = false;
+        movementIntegral = Vector3.zero;
+        trackedSupportBody = null;
+        supportVelocityReady = false;
+    }
+
+    private void SwitchToCapsuleBody()
+    {
+        if (pelvisBody == normalBody) return;
+        Vector3 position = ragdollBody.position;
+        Vector3 velocity = ragdollBody.linearVelocity;
+        Quaternion upright = FacingToRotation(desiredFacing, out Vector3 flatFacing);
+        // A fallen pelvis is often below standing height. Do not reactivate the capsule
+        // intersecting the ground: that creates a huge upward impulse on recovery.
+        float standHeight = StandingPelvisHeight + 0.035f;
+        if (CastSupport(position + Vector3.up * 0.75f, 0.10f,
+            Mathf.Max(2f, groundProbeDistance + 1.5f), out RaycastHit hit))
+            position.y = Mathf.Max(position.y, hit.point.y + standHeight);
+
+        DeactivateBody(ragdollBody);
+        normalBody.transform.SetPositionAndRotation(position, upright);
+        ActivateBody(normalBody);
+        normalBody.linearVelocity = Vector3.ProjectOnPlane(velocity, Vector3.up);
+        normalBody.angularVelocity = Vector3.zero;
+        pelvisBody = normalBody;
+        movementFacingWorld = upright;
+        desiredFacing = flatFacing;
+        IsGrounded = hasSupportSurface = false;
+        jumpSupportCooldown = 0f;
+        movementIntegral = Vector3.zero;
+        trackedSupportBody = null;
+        supportVelocityReady = false;
+        hasAirborneInheritedVelocity = false;
     }
 
     // =====================================================================================
@@ -907,10 +1058,10 @@ public sealed class PlayerController : MonoBehaviour
             // Turn the upper-leg bodies by the same delta so they don't lag behind the pelvis.
             Quaternion delta = movementFacingWorld * Quaternion.Inverse(previous);
             float change = Quaternion.Angle(Quaternion.identity, delta);
-            if (change > 0.01f)
+            if (dynamicPoseActive && change > 0.01f)
                 foreach (Foot f in feet)
                     if (f.thigh != null && bodyByVisualBone.TryGetValue(f.thigh, out Rigidbody b)) b.MoveRotation(delta * b.rotation);
-            if (move.sqrMagnitude >= 0.02f && change >= gait.footReplantTurnAngle) ClearFootPlants();
+            if (dynamicPoseActive && move.sqrMagnitude >= 0.02f && change >= gait.footReplantTurnAngle) ClearFootPlants();
         }
 
         pelvisBody.MoveRotation(movementFacingWorld);
@@ -1472,7 +1623,7 @@ public sealed class PlayerController : MonoBehaviour
 
     public bool EnterVehicleSeat(Transform seatAnchor, Rigidbody vehicleBody)
     {
-        if (seatAnchor == null || pelvisBody == null || IsVehicleSeated) return false;
+        if (seatAnchor == null || pelvisBody == null || IsVehicleSeated || externalMotionControl || knockdownActive) return false;
         if (weaponController == null) weaponController = GetComponent<WeaponController>();
 
         animatorWasEnabledBeforeSeat = movementAnimator != null && movementAnimator.enabled;
@@ -1656,15 +1807,28 @@ public sealed class PlayerController : MonoBehaviour
 
     public bool BeginExternalClimbControl()
     {
-        if (pelvisBody == null || IsVehicleSeated || externalMotionControl) return false;
+        // A climb must never share control with a vehicle seat or a falling ragdoll.
+        if (pelvisBody == null || IsVehicleSeated || externalMotionControl || knockdownActive || recoveryPoseLockFrames > 0)
+            return false;
+
+        CacheMovementAnimator();
+        animatorWasEnabledBeforeExternalControl = movementAnimator != null && movementAnimator.enabled;
+        // Do not enter kinematic/external control unless the climb animation really started.
+        // Otherwise the body can remain locked forever in its last seat / climb pose.
+        if (!BeginExternalClimbAnimation())
+        {
+            if (!dynamicPoseActive && movementAnimator != null && movementAnimator.runtimeAnimatorController != null)
+                RestoreAnimatedPose(true);
+            return false;
+        }
+
         externalMotionControl = true;
         externalRenderPoseValid = false;
-        animatorWasEnabledBeforeExternalControl = movementAnimator != null && movementAnimator.enabled;
-        externalClimbAnimatorActive = BeginExternalClimbAnimation();
-        if (!externalClimbAnimatorActive && movementAnimator != null) movementAnimator.enabled = false;
+        // The animation is now running. Without this flag, Update() treats every valid climb
+        // as a failed climb and immediately forces FinishExternalClimbControl().
+        externalClimbAnimatorActive = true;
         if (weaponController == null) weaponController = GetComponent<WeaponController>();
         if (weaponController != null) weaponController.PrepareForVehicleSeat();
-
         ResetProceduralPoseOffsets();
         ConfigureLimbSimulation(false);
         pelvisInterpolationBeforeExternalControl = pelvisBody.interpolation;
@@ -1683,15 +1847,41 @@ public sealed class PlayerController : MonoBehaviour
     private bool BeginExternalClimbAnimation()
     {
         CacheMovementAnimator();
-        if (movementAnimator == null || movementAnimator.runtimeAnimatorController == null) return false;
-        externalClimbLayer = movementAnimator.GetLayerIndex("Traversal");
-        if (externalClimbLayer < 0) return false;
+        if (movementAnimator == null || movementAnimator.runtimeAnimatorController == null)
+        {
+            Debug.LogWarning("Climb rejected: the player has no Animator Controller. Check RobberVisualRig.", this);
+            return false;
+        }
 
+        int layer = movementAnimator.GetLayerIndex("Traversal");
+        if (layer < 0)
+        {
+            Debug.LogWarning("Climb rejected: Animator Controller has no 'Traversal' layer.", this);
+            return false;
+        }
+
+        bool wasEnabled = movementAnimator.enabled;
+        movementAnimator.enabled = false;
+        RestoreVisualRestPose();
         movementAnimator.enabled = true;
-        movementAnimator.SetLayerWeight(externalClimbLayer, 1f);
-        externalClimbState = TraversalHoldState;
-        movementAnimator.Play(TraversalHoldState, externalClimbLayer, 0f);
+        movementAnimator.Rebind();
+        movementAnimator.speed = 1f;
+        movementAnimator.SetLayerWeight(layer, 1f);
+        movementAnimator.Play(TraversalHoldState, layer, 0f);
         movementAnimator.Update(0f);
+        // GetLayerIndex alone is insufficient: the layer may exist with no playable Hold state.
+        if (movementAnimator.GetCurrentAnimatorStateInfo(layer).shortNameHash != TraversalHoldState)
+        {
+            movementAnimator.SetLayerWeight(layer, 0f);
+            movementAnimator.enabled = wasEnabled;
+            externalClimbLayer = -1;
+            externalClimbState = 0;
+            Debug.LogWarning("Climb rejected: 'Traversal/Hold' state did not start. Check state names and clips.", this);
+            return false;
+        }
+
+        externalClimbLayer = layer;
+        externalClimbState = TraversalHoldState;
         return true;
     }
 
@@ -1743,14 +1933,16 @@ public sealed class PlayerController : MonoBehaviour
     {
         if (!externalMotionControl || pelvisBody == null) return;
         SetExternalClimbPose(pelvisPosition, facing);
+        EndExternalClimbAnimation();
         externalMotionControl = false;
         externalRenderPoseValid = false;
-        EndExternalClimbAnimation();
-
         ResetProceduralPoseOffsets();
-        ApplyKinematicVisualPose(pelvisBody.transform.position, movementFacingWorld);
-        SynchronizePhysicsLimbsToVisuals();
+        ClearFootPlants();
 
+        if (movementAnimator != null) movementAnimator.enabled = false;
+        RestoreVisualRestPose();
+        // No physics proxy may write back while we restore the animated skeleton.
+        ConfigureLimbSimulation(false);
         pelvisBody.isKinematic = false;
         pelvisBody.useGravity = true;
         pelvisBody.detectCollisions = true;
@@ -1762,7 +1954,8 @@ public sealed class PlayerController : MonoBehaviour
 
         if (dynamicPoseActive)
         {
-            if (movementAnimator != null) movementAnimator.enabled = false;
+            ApplyKinematicVisualPose(pelvisBody.position, movementFacingWorld);
+            SynchronizePhysicsLimbsToVisuals();
             ConfigureLimbSimulation(true);
             foreach (Muscle m in muscles)
             {
@@ -1771,7 +1964,11 @@ public sealed class PlayerController : MonoBehaviour
                 m.body.angularVelocity = Vector3.zero;
             }
         }
-        else RestoreAnimatedPose(animatorWasEnabledBeforeExternalControl);
+        else
+        {
+            // Normal movement ALWAYS returns to an enabled Animator (not the saved disabled state).
+            RestoreAnimatedPose(true);
+        }
 
         jumpSupportCooldown = 0f;
         headSmoothingReady = false;
@@ -1787,9 +1984,21 @@ public sealed class PlayerController : MonoBehaviour
         if (relativeSpeed > 13f) flopTimer = Mathf.Max(flopTimer, ragdoll.impactFlopSeconds);
     }
 
+    [ContextMenu("Trigger Ragdoll")]
+    public void TriggerRagdoll()
+    {
+        if (pelvisBody != null) ApplyTrainWheelKnockdown(Vector3.zero, pelvisBody.linearVelocity, ragdoll.knockdownDuration);
+    }
+
+    [ContextMenu("Recover From Ragdoll")]
+    public void RecoverFromRagdoll()
+    {
+        if (knockdownActive) FinishKnockdown();
+    }
+
     public void ApplyTrainWheelKnockdown(Vector3 outwardVelocity, Vector3 trainVelocity, float duration)
     {
-        if (pelvisBody == null || IsVehicleSeated || knockdownActive) return;
+        if (pelvisBody == null || IsVehicleSeated || externalMotionControl || knockdownActive) return;
 
         animatorWasEnabledBeforeKnockdown = movementAnimator != null && movementAnimator.enabled;
         knockdownActive = true;
@@ -1799,9 +2008,17 @@ public sealed class PlayerController : MonoBehaviour
         ClearInput();
         ClearFootPlants();
 
-        if (movementAnimator != null) movementAnimator.enabled = false;
-        SynchronizePhysicsLimbsToVisuals();
-        ConfigureLimbSimulation(true);
+        if (!dynamicPoseActive)
+        {
+            // First align the currently disabled ragdoll to the LAST animated frame. Only then
+            // disable the Animator and activate the isolated physics bodies/colliders.
+            SwitchToRagdollBody();
+            SynchronizePhysicsLimbsToVisuals();
+            if (movementAnimator != null) movementAnimator.enabled = false;
+            ConfigureLimbSimulation(true);
+        }
+        else if (movementAnimator != null) movementAnimator.enabled = false;
+
         pelvisBody.isKinematic = false;
         pelvisBody.useGravity = true;
         pelvisBody.detectCollisions = true;
@@ -1810,7 +2027,8 @@ public sealed class PlayerController : MonoBehaviour
         pelvisBody.angularDamping = ragdoll.ragdollAngularDamping;
         Vector3 velocity = trainVelocity + outwardVelocity;
         pelvisBody.linearVelocity = velocity;
-        pelvisBody.angularVelocity = Vector3.Cross(Vector3.up, outwardVelocity.normalized) * 4f;
+        pelvisBody.angularVelocity = outwardVelocity.sqrMagnitude > 0.001f
+            ? Vector3.Cross(Vector3.up, outwardVelocity.normalized) * 4f : Vector3.zero;
         foreach (Muscle m in muscles)
         {
             if (m.body == null) continue;
@@ -1821,6 +2039,7 @@ public sealed class PlayerController : MonoBehaviour
         IsGrounded = false;
         hasSupportSurface = false;
         jumpSupportCooldown = 0.35f;
+        Physics.SyncTransforms();
     }
 
     private void FinishKnockdown()
@@ -1829,33 +2048,36 @@ public sealed class PlayerController : MonoBehaviour
         knockdownActive = false;
         recoveryPoseLockFrames = 3;
         knockdownTimer = flopTimer = 0f;
-
-        Quaternion upright = FacingToRotation(desiredFacing, out _);
-        pelvisBody.rotation = upright;
-        pelvisBody.angularVelocity = Vector3.zero;
         pelvisBody.angularDamping = pelvisAngularDampingBeforeKnockdown > 0f ? pelvisAngularDampingBeforeKnockdown : 7f;
+        pelvisBody.angularVelocity = Vector3.zero;
         pelvisBody.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
-        movementFacingWorld = upright;
-        airborneInheritedVelocity = Vector3.ProjectOnPlane(pelvisBody.linearVelocity, Vector3.up);
-        hasAirborneInheritedVelocity = !IsGrounded && airborneInheritedVelocity.sqrMagnitude > 0.0001f;
 
         if (dynamicPoseActive)
         {
-            if (movementAnimator != null) movementAnimator.enabled = false;
+            // Optional procedural gait stays on its own physics motor after knockdown.
+            Quaternion upright = FacingToRotation(desiredFacing, out _);
+            pelvisBody.rotation = movementFacingWorld = upright;
             ResetProceduralPoseOffsets();
-            // Restore every imported transform, including helper, shoulder and finger bones.
             RestoreVisualRestPose();
             AnchorAnimatedVisualAt(pelvisBody.position, upright);
             ApplyKinematicVisualPose(pelvisBody.position, upright);
             SynchronizePhysicsLimbsToVisuals();
             ConfigureLimbSimulation(true);
         }
-        else RestoreAnimatedPose(animatorWasEnabledBeforeKnockdown);
+        else
+        {
+            // This is a FULL motor swap, not a half-kinematic ragdoll. Turn off limb and core
+            // collision, put the independent capsule upright, then reset every animated bone.
+            ConfigureLimbSimulation(false);
+            SwitchToCapsuleBody();
+            RestoreAnimatedPose(animatorWasEnabledBeforeKnockdown);
+        }
 
         foreach (Muscle m in muscles)
             if (m.body != null) m.body.angularDamping = 4.5f;
         headSmoothingReady = false;
         jumpSupportCooldown = 0f;
+        Physics.SyncTransforms();
     }
 
     // =====================================================================================
@@ -1885,7 +2107,7 @@ public sealed class PlayerController : MonoBehaviour
         Transform core = new GameObject("Physics_Core").transform;
         core.SetParent(physicsRoot, false);
         core.SetPositionAndRotation(pelvis.position, pelvis.rotation);
-        pelvisBody = ConfigureBody(core, 12f, true);
+        ragdollBody = pelvisBody = ConfigureBody(core, 12f, true);
         ConfigureCollider(core, pelvis);
         pelvisVisualRotationOffset = Quaternion.Inverse(core.rotation) * pelvis.rotation;
         headRestRelativeToPelvis = head != null ? Quaternion.Inverse(pelvisStartRotation) * head.rotation : Quaternion.identity;

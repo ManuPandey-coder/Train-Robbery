@@ -4014,6 +4014,7 @@ MonoBehaviour:
     headLookSharpness: 8
     knockdownDuration: 1.15
     ragdollAngularDamping: 0.55
+  ragdollToggleKey: 0
   seatAdjustSpeed: 3
   passengerSeat:
     distanceFromWheel: 0
