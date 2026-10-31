@@ -3964,54 +3964,75 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f90a0ccd2af22f54cadcecc46e0b2435, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerController
-  walkSpeed: 5.5
-  runSpeed: 9
-  acceleration: 24
-  runAccelerationMultiplier: 1.25
-  jumpVelocity: 6.5
-  extraGravity: 8
+  movement:
+    walkSpeed: 5.5
+    runSpeed: 9
+    acceleration: 24
+    runAccelerationMultiplier: 1.25
+    jumpVelocity: 6.5
+    extraGravity: 8
+    aimTurnSpeed: 540
   movementAnimator: {fileID: 1481071016755001022}
   animatedFacingOffset: 0
-  matchGaitToMovementSpeed: 1
-  gaitSpeedMatch: 1
-  stepFrequency: 2.5
-  gaitTempoMultiplier: 0.45
-  strideScale: 0.78
-  fastStrideMultiplier: 1.5
-  fastStrideSpeed: 8
-  stepLiftScale: 0.36
-  bodyBobHeight: 0.06
-  standingHeightReduction: 0.055
-  runCadenceMultiplier: 1.5
-  runStrideMultiplier: 1.22
-  runBobMultiplier: 1.12
-  footTargetSharpness: 12
-  footPositionStrength: 125
-  footVelocityDamping: 34
-  footMaxAcceleration: 105
-  footReplantTurnAngle: 80
-  legSwing: 34
-  kneeBend: 42
-  armSwing: 26
-  idleWobble: 4
-  lowerBodyStrength: 140
-  legDampingMultiplier: 5.2
-  torsoStrength: 105
-  armStrength: 38
-  muscleDamping: 10
-  impactFlopSeconds: 0.55
-  headLookSharpness: 8
-  knockdownDuration: 1.15
-  ragdollAngularDamping: 0.55
-  seatedThighEuler: {x: 68, y: 0, z: 0}
-  seatedShinEuler: {x: 82, y: 0, z: 0}
-  seatedFootEuler: {x: -24, y: 0, z: 0}
-  seatedArmEuler: {x: 8, y: 0, z: 10}
-  drivingArmEuler: {x: -28, y: 0, z: 18}
-  aimTurnSpeed: 540
-  turnStepDuration: 0.18
-  turnStepDistance: 0.07
-  turnStepLift: 0.06
+  startWithPhysicsPose: 0
+  physicsPoseCode: pandu
+  gait:
+    matchGaitToMovementSpeed: 1
+    gaitSpeedMatch: 1
+    manualCyclesPerSecond: 1.1
+    runCadenceMultiplier: 1.5
+    gaitBlendRate: 8
+    strideScale: 0.78
+    fastStrideMultiplier: 1.5
+    fastStrideSpeed: 8
+    runStrideMultiplier: 1.22
+    walkSwingFraction: 0.44
+    runSwingFraction: 0.55
+    stepLiftScale: 0.36
+    bodyBobHeight: 0.06
+    runBobMultiplier: 1.12
+    standingHeightReduction: 0.055
+    legSwing: 34
+    kneeBend: 46
+    armSwing: 26
+    runArmSwingMultiplier: 1.4
+    idleWobble: 4
+    footTargetSharpness: 12
+    footPositionStrength: 125
+    footVelocityDamping: 34
+    footMaxAcceleration: 105
+    footReplantTurnAngle: 80
+    turnStepDuration: 0.18
+    turnStepDistance: 0.07
+    turnStepLift: 0.06
+  ragdoll:
+    lowerBodyStrength: 140
+    armStrength: 38
+    muscleDamping: 10
+    legDampingMultiplier: 5.2
+    impactFlopSeconds: 0.55
+    headLookSharpness: 8
+    knockdownDuration: 1.15
+    ragdollAngularDamping: 0.55
+  seatAdjustSpeed: 3
+  passengerSeat:
+    distanceFromWheel: 0
+    heightOffset: 0
+    sideOffset: 0
+    thighEuler: {x: 68, y: 0, z: 0}
+    shinEuler: {x: 82, y: 0, z: 0}
+    footEuler: {x: -24, y: 0, z: 0}
+    armEuler: {x: 8, y: 0, z: 10}
+    forearmBend: 28
+  driverSeat:
+    distanceFromWheel: 0
+    heightOffset: 0
+    sideOffset: 0
+    thighEuler: {x: 68, y: 0, z: 0}
+    shinEuler: {x: 82, y: 0, z: 0}
+    footEuler: {x: -24, y: 0, z: 0}
+    armEuler: {x: -28, y: 0, z: 18}
+    forearmBend: 52
 --- !u!114 &8690520829734023443
 MonoBehaviour:
   m_ObjectHideFlags: 0
