@@ -428,7 +428,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &7624965520614063140
 CapsuleCollider:
@@ -590,7 +590,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &4149382682419074495
 CapsuleCollider:
@@ -790,7 +790,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &7884535451770396258
 CapsuleCollider:
@@ -990,7 +990,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &3788192896804095452
 CapsuleCollider:
@@ -1222,7 +1222,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &2769665285857142480
 CapsuleCollider:
@@ -1549,7 +1549,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &5663748949884571814
 CapsuleCollider:
@@ -1749,7 +1749,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &3179399865347870889
 CapsuleCollider:
@@ -2045,7 +2045,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &8450590437296935721
 CapsuleCollider:
@@ -2408,7 +2408,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &8463349049982827298
 CapsuleCollider:
@@ -2868,7 +2868,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &4005656219711913812
 CapsuleCollider:
@@ -3068,7 +3068,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &1808028756127027689
 CapsuleCollider:
@@ -3360,6 +3360,139 @@ SkinnedMeshRenderer:
     m_Center: {x: -0.0027885046, y: 0.008239271, z: 0}
     m_Extent: {x: 0.016164849, y: 0.05195032, z: 0.03491094}
   m_DirtyAABB: 0
+--- !u!1 &5160162928210719508
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3614327107820799771}
+  - component: {fileID: 4656807326490688900}
+  m_Layer: 0
+  m_Name: mask
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &3614327107820799771
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5160162928210719508}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0.50000006, y: -0.49999994, z: -0.49999997, w: 0.50000006}
+  m_LocalPosition: {x: -0, y: 2.842171e-14, z: 0}
+  m_LocalScale: {x: 59.19942, y: 59.19942, z: 59.19942}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 4136276563825302216}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!137 &4656807326490688900
+SkinnedMeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5160162928210719508}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 3
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: -876546973899608171, guid: 8e3fbe9a129de5d4c90fe6a788bfff09, type: 3}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  serializedVersion: 2
+  m_Quality: 0
+  m_UpdateWhenOffscreen: 0
+  m_SkinnedMotionVectors: 1
+  m_Mesh: {fileID: 7384567162086786122, guid: 8e3fbe9a129de5d4c90fe6a788bfff09, type: 3}
+  m_Bones:
+  - {fileID: 5196966107545040876}
+  - {fileID: 3476486684199137220}
+  - {fileID: 388940456539990703}
+  - {fileID: 1607305260920628820}
+  - {fileID: 2677212957183468854}
+  - {fileID: 3004151989042560666}
+  - {fileID: 1809081044287751880}
+  - {fileID: 355682619076471142}
+  - {fileID: 8357739423565840121}
+  - {fileID: 4559575329775742402}
+  - {fileID: 6987899098543715348}
+  - {fileID: 5018947773863279333}
+  - {fileID: 4927618921803316662}
+  - {fileID: 6001259446944629037}
+  - {fileID: 1227388978646116896}
+  - {fileID: 8185533123587829629}
+  - {fileID: 722088655528662900}
+  - {fileID: 6015421369691399980}
+  - {fileID: 8542215483815826627}
+  - {fileID: 3492332147252989897}
+  - {fileID: 4640140571809187777}
+  - {fileID: 7180844494424064319}
+  - {fileID: 7471044525993467930}
+  - {fileID: 8466640912281215284}
+  - {fileID: 1039382252102284894}
+  - {fileID: 1161345777074844433}
+  - {fileID: 3470506131486761311}
+  - {fileID: 3146069634949754984}
+  - {fileID: 8202875832705210297}
+  - {fileID: 7386156332850245047}
+  - {fileID: 1192952946344691729}
+  - {fileID: 8736250402401287850}
+  - {fileID: 8776840661004788521}
+  - {fileID: 3314112450849719699}
+  - {fileID: 1757786154666820595}
+  - {fileID: 6452254197013055576}
+  - {fileID: 4057685356980517452}
+  - {fileID: 934862233397172937}
+  - {fileID: 4272390492043511414}
+  - {fileID: 6841555402663070461}
+  - {fileID: 7462499305245525369}
+  m_BlendShapeWeights: []
+  m_RootBone: {fileID: 5196966107545040876}
+  m_AABB:
+    m_Center: {x: 0.0000000013969839, y: 0.038125206, z: -0.0000000018626451}
+    m_Extent: {x: 0.0151780285, y: 0.009396549, z: 0.013588961}
+  m_DirtyAABB: 0
 --- !u!1 &5227494062673985933
 GameObject:
   m_ObjectHideFlags: 0
@@ -3426,6 +3559,7 @@ Transform:
   - {fileID: 9090764324673182622}
   - {fileID: 8402051942177338396}
   - {fileID: 4241818667908037024}
+  - {fileID: 3614327107820799771}
   m_Father: {fileID: 633933149155681856}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!95 &1481071016755001022
@@ -3793,6 +3927,7 @@ GameObject:
   - component: {fileID: 7488061232873328862}
   - component: {fileID: 8690520829734023443}
   - component: {fileID: 6461396543572424670}
+  - component: {fileID: 7704427295660390183}
   m_Layer: 0
   m_Name: WobblyPlayer
   m_TagString: Untagged
@@ -3828,7 +3963,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f90a0ccd2af22f54cadcecc46e0b2435, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyActiveRagdoll
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerController
   walkSpeed: 5.5
   runSpeed: 9
   acceleration: 24
@@ -3866,6 +4001,8 @@ MonoBehaviour:
   muscleDamping: 10
   impactFlopSeconds: 0.55
   headLookSharpness: 8
+  knockdownDuration: 1.15
+  ragdollAngularDamping: 0.55
   seatedThighEuler: {x: 68, y: 0, z: 0}
   seatedShinEuler: {x: 82, y: 0, z: 0}
   seatedFootEuler: {x: -24, y: 0, z: 0}
@@ -3886,7 +4023,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ef7c245a0ec1bdf409821c16fa506e9d, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyWeaponController
+  m_EditorClassIdentifier: Assembly-CSharp::WeaponController
   pickupRadius: 2.1
   pickupDuration: 0.42
   pickupKey: 101
@@ -3916,12 +4053,24 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1c82443ff1798c440838f10da48597c6, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyVehicleInteractor
+  m_EditorClassIdentifier: Assembly-CSharp::VehicleInteraction
   doorReach: 2.1
   seatSearchRadius: 2.6
   doorKey: 101
   sitKey: 102
   switchSeatKey: 113
+--- !u!114 &7704427295660390183
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7369284689638398286}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 50a0a175713b49a40a052b587bef123c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CharacterAppearance
 --- !u!1 &7490270994981939518
 GameObject:
   m_ObjectHideFlags: 0
@@ -4059,7 +4208,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &5446882173282926731
 CapsuleCollider:
@@ -4550,7 +4699,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2c48db417069390418ec89a7656d7bcb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::WobblyImpactRelay
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactRelay
   owner: {fileID: 7488061232873328862}
 --- !u!136 &7548679811551680453
 CapsuleCollider:
