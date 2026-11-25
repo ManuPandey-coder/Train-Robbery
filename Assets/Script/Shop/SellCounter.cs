@@ -11,6 +11,9 @@ public class SellCounter : MonoBehaviour
     public Transform player;
     public TMP_Text promptText;
 
+    [Header("Counter Display")]
+    public TMP_Text counterDisplay;
+
     [Header("Selling Settings")]
     [Range(0.1f, 1f)]
     public float sellPercentage = 0.5f;
@@ -18,12 +21,26 @@ public class SellCounter : MonoBehaviour
     private HashSet<ShopWeapon> itemsOnCounter =
         new HashSet<ShopWeapon>();
 
+    // Tracks colliders belonging to each item
+    private Dictionary<ShopWeapon, HashSet<Collider>> itemColliders =
+        new Dictionary<ShopWeapon, HashSet<Collider>>();
+
     private ShopWeapon currentItem;
+
+    private class DisplayRow
+    {
+        public string itemName;
+        public int quantity;
+        public int totalValue;
+    }
 
     private void Update()
     {
+        RemoveInvalidItems();
+
         FindNearestItem();
         UpdatePrompt();
+        UpdateCounterDisplay();
 
         if (currentItem != null &&
             Keyboard.current != null &&
@@ -33,9 +50,13 @@ public class SellCounter : MonoBehaviour
         }
     }
 
+    // Find nearest item
     private void FindNearestItem()
     {
         currentItem = null;
+
+        if (player == null)
+            return;
 
         float closestDistance = float.MaxValue;
 
@@ -57,6 +78,7 @@ public class SellCounter : MonoBehaviour
         }
     }
 
+    // Update F key prompt
     private void UpdatePrompt()
     {
         if (promptText == null)
@@ -64,7 +86,8 @@ public class SellCounter : MonoBehaviour
 
         if (currentItem == null)
         {
-            promptText.text = "Place an item on the counter to sell";
+            promptText.text =
+                "Place an item on the counter to sell";
             return;
         }
 
@@ -77,6 +100,103 @@ public class SellCounter : MonoBehaviour
             " for $" + sellPrice + " [F]";
     }
 
+    // Update counter table
+private void UpdateCounterDisplay()
+{
+    if (counterDisplay == null)
+        return;
+
+    Dictionary<string, DisplayRow> rows =
+        new Dictionary<string, DisplayRow>();
+
+    int grandTotal = 0;
+
+    foreach (ShopWeapon item in itemsOnCounter)
+    {
+        if (item == null || item.weaponData == null)
+            continue;
+
+        string itemName = item.weaponData.weaponName;
+
+        int sellPrice = Mathf.RoundToInt(
+            item.weaponData.price * sellPercentage
+        );
+
+        string key = itemName + "_" + sellPrice;
+
+        if (!rows.ContainsKey(key))
+        {
+            rows[key] = new DisplayRow
+            {
+                itemName = itemName,
+                quantity = 0,
+                totalValue = 0
+            };
+        }
+
+        rows[key].quantity++;
+        rows[key].totalValue += sellPrice;
+
+        grandTotal += sellPrice;
+    }
+
+    // Table header
+    string output = "<b>SELL COUNTER</b>\n\n";
+
+    output += "<mspace=23px>";
+    output += "S.No  ItemName            QTY          TOTAL\n";
+    output += "----------------------------------------\n";
+
+    int serial = 1;
+
+    foreach (DisplayRow row in rows.Values)
+    {
+        string name = row.itemName;
+
+        if (name.Length > 20)
+            name = name.Substring(0, 17) + "...";
+
+        output +=
+            serial.ToString().PadRight(6) +
+            name.PadRight(16) +
+            row.quantity.ToString().PadRight(18) +
+            "$" + row.totalValue + "\n";
+
+        serial++;
+    }
+
+    output += "</mspace>\n";
+    output += "----------------------------------------\n";
+
+    if (rows.Count == 0)
+        output += "\nNo items on counter\n";
+
+    output += "\n<b>GRAND TOTAL: $" + grandTotal + "</b>";
+
+    counterDisplay.text = output;
+}
+
+
+    // Remove destroyed or invalid items
+    private void RemoveInvalidItems()
+    {
+        List<ShopWeapon> invalidItems =
+            new List<ShopWeapon>();
+
+        foreach (ShopWeapon item in itemsOnCounter)
+        {
+            if (item == null || item.weaponData == null)
+                invalidItems.Add(item);
+        }
+
+        foreach (ShopWeapon item in invalidItems)
+        {
+            itemsOnCounter.Remove(item);
+            itemColliders.Remove(item);
+        }
+    }
+
+    // Sell nearest item
     private void SellItem()
     {
         if (currentItem == null ||
@@ -90,33 +210,46 @@ public class SellCounter : MonoBehaviour
 
         ShopWeapon soldItem = currentItem;
 
-        // Give money to player
+        // Give money
         playerWallet.AddMoney(sellPrice);
 
-        // Remove item from counter
+        // Remove from counter tracking
         itemsOnCounter.Remove(soldItem);
+        itemColliders.Remove(soldItem);
+
         currentItem = null;
 
-        // Destroy the physical item
+        // Destroy physical item
         Destroy(soldItem.gameObject);
 
+        UpdateCounterDisplay();
+
         if (promptText != null)
-            promptText.text = "Item sold! +" + sellPrice;
+        {
+            promptText.text =
+                "Item sold! +$" + sellPrice;
+        }
     }
 
+    // Item enters counter
     private void OnTriggerEnter(Collider other)
     {
-        ShopWeapon item = other.GetComponentInParent<ShopWeapon>();
-
-        if (item != null)
-            itemsOnCounter.Add(item);
+        ShopWeapon item =other.GetComponentInParent<ShopWeapon>();
+        if (item == null)
+        return;
+        itemsOnCounter.Add(item);
+        UpdateCounterDisplay();
     }
 
+    // Item leaves counter
     private void OnTriggerExit(Collider other)
-    {
-        ShopWeapon item = other.GetComponentInParent<ShopWeapon>();
-
-        if (item != null)
-            itemsOnCounter.Remove(item);
+    {ShopWeapon item =other.GetComponentInParent<ShopWeapon>();
+          if (item == null)
+          return;
+          itemsOnCounter.Remove(item);
+          itemColliders.Remove(item);
+          UpdateCounterDisplay();
+          FindNearestItem();
+           UpdatePrompt();
     }
 }
