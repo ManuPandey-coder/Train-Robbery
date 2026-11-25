@@ -9,7 +9,13 @@ using UnityEngine.UI;
 [AddComponentMenu("Game/Menu Manager")]
 public sealed class MenuManager : MonoBehaviour
 {
-    public static bool BlocksGameplay { get; private set; }
+    private static bool menuBlocksGameplay;
+    public static bool IsMenuOpen => menuBlocksGameplay;
+    public static bool BlocksGameplay
+    {
+        get => menuBlocksGameplay || PlayerInventory.IsUIOpen;
+        private set => menuBlocksGameplay = value;
+    }
 
     [Header("Startup")]
     [SerializeField] private bool openMainMenuAtStart = true;
@@ -77,6 +83,11 @@ public sealed class MenuManager : MonoBehaviour
             Cursor.visible = true;
         }
         if (!Input.GetKeyDown(KeyCode.Escape)) return;
+        if (PlayerInventory.IsUIOpen)
+        {
+            player?.GetComponent<PlayerInventory>()?.SetUIOpen(false);
+            return;
+        }
         if (customizing) ShowMainMenu();
         else if (gameplayStarted && BlocksGameplay) StartOrResumeGame();
         else if (gameplayStarted) ShowMainMenu();

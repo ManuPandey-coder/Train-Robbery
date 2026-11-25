@@ -109,7 +109,10 @@ public static class GameMenuSetup
     {
         if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling) return;
         if (SceneManager.GetActiveScene().path != GameScenePath) return;
-        Setup();
+        Canvas canvas = FindNamed<Canvas>("Canvas");
+        // Connecting an existing menu is a one-time operation. Code reloads
+        // must preserve the designer's layout and current panel selection.
+        if (canvas != null && canvas.GetComponent<MenuManager>() == null) Setup();
     }
 
     private static void EnsureCustomizationUi(Transform panel, Button buttonTemplate, TMP_Text textTemplate)
@@ -131,6 +134,75 @@ public static class GameMenuSetup
             new Vector2(0.37f, 0.49f), new Vector2(0.43f, 0.59f));
         EnsureButton(panel, "Back Button", "BACK", buttonTemplate,
             new Vector2(0.05f, 0.12f), new Vector2(0.43f, 0.21f));
+    }
+
+    [MenuItem("Tools/Game Setup/Repair Customization Layout")]
+    public static void RepairCustomizationLayout()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+        Canvas canvas = FindNamed<Canvas>("Canvas");
+        Transform panel = canvas != null ? FindDescendant(canvas.transform, "customize menu") : null;
+        if (panel == null) { Debug.LogError("The existing customization panel was not found."); return; }
+        Undo.RegisterFullObjectHierarchyUndo(panel.gameObject, "Repair customization layout");
+        // Repair the existing controls in place. A bounded left card leaves the
+        // right side clear for the real scene character, at every aspect ratio.
+        SetRect(panel.GetComponent<RectTransform>(), Vector2.zero, Vector2.one);
+        RectTransform card = FindDescendant(panel, "Customization Controls") as RectTransform;
+        if (card == null)
+        {
+            var go = new GameObject("Customization Controls", typeof(RectTransform), typeof(UnityEngine.UI.Image));
+            Undo.RegisterCreatedObjectUndo(go, "Create customization card");
+            go.transform.SetParent(panel, false);
+            card = go.GetComponent<RectTransform>();
+        }
+        SetRect(card, new Vector2(.035f, .1f), new Vector2(.39f, .9f));
+        var background = card.GetComponent<UnityEngine.UI.Image>();
+        background.color = new Color(.065f, .08f, .105f, .96f);
+        background.raycastTarget = false;
+        MoveControl(panel, card, "Customization Title", new Vector2(.08f,.8f), new Vector2(.92f,.95f), 34);
+        MoveControl(panel, card, "Category Label", new Vector2(.24f,.61f), new Vector2(.76f,.72f), 30);
+        MoveControl(panel, card, "Category Previous Button", new Vector2(.08f,.61f), new Vector2(.21f,.72f), 30);
+        MoveControl(panel, card, "Category Next Button", new Vector2(.79f,.61f), new Vector2(.92f,.72f), 30);
+        MoveControl(panel, card, "Option Label", new Vector2(.24f,.39f), new Vector2(.76f,.53f), 26);
+        MoveControl(panel, card, "Option Previous Button", new Vector2(.08f,.4f), new Vector2(.21f,.52f), 30);
+        MoveControl(panel, card, "Option Next Button", new Vector2(.79f,.4f), new Vector2(.92f,.52f), 30);
+        MoveControl(panel, card, "Back Button", new Vector2(.08f,.07f), new Vector2(.92f,.19f), 25);
+        // Only transparent panel background is changed; the user's other menu
+        // objects and button callbacks remain intact.
+        var panelImage = panel.GetComponent<UnityEngine.UI.Image>();
+        if (panelImage != null) { panelImage.color = Color.clear; panelImage.raycastTarget = false; }
+        Canvas.ForceUpdateCanvases();
+        EditorUtility.SetDirty(panel.gameObject);
+        EditorSceneManager.MarkSceneDirty(panel.gameObject.scene);
+        EditorSceneManager.SaveScene(panel.gameObject.scene);
+        Debug.Log("Customization layout repaired in place; future code reloads preserve it.");
+    }
+
+    private static void MoveControl(Transform searchRoot, RectTransform card, string name,
+        Vector2 min, Vector2 max, int fontSize)
+    {
+        Transform node = FindDescendant(searchRoot, name);
+        if (node == null) return;
+        var rect = node as RectTransform;
+        if (rect == null) return;
+        rect.SetParent(card, false);
+        var layout = rect.GetComponent<UnityEngine.UI.LayoutElement>();
+        if (layout != null) layout.ignoreLayout = true;
+        SetRect(rect, min, max);
+        rect.localRotation = Quaternion.identity;
+        var button = rect.GetComponent<UnityEngine.UI.Button>();
+        if (button != null && button.targetGraphic != null)
+        { button.targetGraphic.color = new Color(.32f,.24f,.15f,1f); button.targetGraphic.raycastTarget = true; }
+        foreach (TMP_Text label in rect.GetComponentsInChildren<TMP_Text>(true))
+        {
+            label.raycastTarget = false;
+            label.color = new Color(.96f,.94f,.88f);
+            label.alignment = TextAlignmentOptions.Center;
+            label.enableAutoSizing = true;
+            label.fontSizeMin = 12;
+            label.fontSizeMax = fontSize;
+            if (label.transform != rect) SetRect(label.rectTransform, new Vector2(.06f,.08f), new Vector2(.94f,.92f));
+        }
     }
 
     private static TMP_Text EnsureText(Transform parent, string name, string value, TMP_Text template,
@@ -157,6 +229,7 @@ public static class GameMenuSetup
         }
 
         if (text == null) return null;
+        if (existing != null) return text;
         text.text = value;
         text.fontSize = fontSize;
         text.alignment = TextAlignmentOptions.Center;
@@ -189,6 +262,7 @@ public static class GameMenuSetup
         }
 
         if (button == null) return null;
+        if (existing != null) return button;
         button.onClick.RemoveAllListeners();
         TMP_Text text = button.GetComponentInChildren<TMP_Text>(true);
         if (text != null) text.text = label;
@@ -275,7 +349,12 @@ public static class GameMenuSetup
     private static T FindNamed<T>(string name) where T : Component
     {
         T[] items = Object.FindObjectsByType<T>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-        for (int i = 0; i < items.Length; i++) if (items[i].name == name) return items[i];
+        for (int i = 0; i < items.Length; i++)
+        {
+            if (items[i].name != name || items[i].gameObject.scene != SceneManager.GetActiveScene()) continue;
+            if (typeof(T) == typeof(Canvas) && FindDescendant(items[i].transform, "customize menu") == null) continue;
+            return items[i];
+        }
         return null;
     }
 

@@ -339,6 +339,8 @@ public sealed class PlayerController : MonoBehaviour
 
     private void Awake()
     {
+        if (GetComponent<CurrencyWallet>() == null) gameObject.AddComponent<CurrencyWallet>();
+        if (GetComponent<PlayerInventory>() == null) gameObject.AddComponent<PlayerInventory>();
         BuildRagdoll();
         if (pelvisBody == null)
         {
@@ -647,7 +649,7 @@ public sealed class PlayerController : MonoBehaviour
         if (movementAnimator != null)
         {
             movementAnimator.enabled = enableAnimator;
-            if (enableAnimator && movementAnimator.runtimeAnimatorController != null)
+            if (enableAnimator && movementAnimator.isActiveAndEnabled && movementAnimator.runtimeAnimatorController != null)
             {
                 movementAnimator.Rebind();
                 movementAnimator.speed = 1f;
@@ -1798,7 +1800,8 @@ public sealed class PlayerController : MonoBehaviour
     public void ResetUpperBodyAfterGrip()
     {
         ResetArms(true);
-        if (!dynamicPoseActive && movementAnimator != null && movementAnimator.enabled) movementAnimator.Update(0f);
+        if (!dynamicPoseActive && movementAnimator != null && movementAnimator.isActiveAndEnabled &&
+            movementAnimator.runtimeAnimatorController != null) movementAnimator.Update(0f);
     }
 
     // =====================================================================================

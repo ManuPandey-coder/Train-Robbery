@@ -205,9 +205,10 @@ public sealed class WeaponController : MonoBehaviour
         if (viewCamera == null) viewCamera = Camera.main;
         aimInput = Input.GetMouseButton(1);
 
-        if (Input.GetKeyDown(pickupKey))
+        bool inventoryControlsItems = GetComponent<PlayerInventory>() != null;
+        if (!inventoryControlsItems && Input.GetKeyDown(pickupKey))
             TryPickupNearest();
-        if (Input.GetKeyDown(dropKey))
+        if (!inventoryControlsItems && Input.GetKeyDown(dropKey))
             DropHeldWeapon();
 
         if (IsReloading && Time.time >= reloadEndTime)
@@ -393,6 +394,12 @@ public sealed class WeaponController : MonoBehaviour
         }
         if (nearest == null) return;
 
+        EquipWeapon(nearest);
+    }
+
+    public bool EquipWeapon(PickupWeapon nearest)
+    {
+        if (nearest == null || nearest.IsHeld || ragdoll == null) return false;
         if (heldWeapon != null) DropHeldWeapon();
         heldWeapon = nearest;
         pickupStartPosition = nearest.transform.position;
@@ -405,6 +412,17 @@ public sealed class WeaponController : MonoBehaviour
         nextShotTime = Time.time;
         ragdoll.ArmsReserved = true;
         ragdoll.SupportHandReserved = nearest.UsesTwoHands;
+        return true;
+    }
+
+    public void ReleaseEquippedWeapon(Vector3 position, Vector3 velocity)
+    {
+        PickupWeapon released = heldWeapon;
+        if (released == null) return;
+        DropHeldWeapon();
+        Rigidbody body = released.GetComponent<Rigidbody>();
+        if (body != null) { body.position = position; body.linearVelocity = velocity; }
+        released.transform.position = position;
     }
 
     private void DropHeldWeapon()
@@ -558,7 +576,15 @@ public sealed class WeaponController : MonoBehaviour
 
     private void OnDisable()
     {
-        if (heldWeapon != null) DropHeldWeapon();
+        // During hierarchy deactivation Unity forbids reparenting a child of
+        // the object being disabled. Keep the held object attached through
+        // that lifecycle transition; normal component-only disabling (seats)
+        // may still release it while its entire hierarchy is active.
+        if (gameObject.activeInHierarchy && weaponHolder != null &&
+            weaponHolder.gameObject.activeInHierarchy && heldWeapon != null &&
+            heldWeapon.gameObject.activeInHierarchy)
+            DropHeldWeapon();
+        else CancelReload();
         if (ragdoll != null) { ragdoll.ArmsReserved = false; ragdoll.SupportHandReserved = false; }
     }
 
