@@ -43,7 +43,8 @@ public sealed class GameplayHudController : MonoBehaviour
         if (!visible)
         {
             if (player != null) player.SetVirtualMovement(Vector2.zero);
-            if (weapons != null) weapons.SetVirtualAim(false);
+            bool v = weapons != null;
+            if (v) weapons.SetVirtualAim(false);
         }
         RefreshSlots();
     }
@@ -122,7 +123,7 @@ public sealed class GameplayHudController : MonoBehaviour
         MakeCircular(jumpButton);
         Button fireButton = CreateHudButton("FireButton", "FIRE", new Vector2(1f, 0f), new Vector2(1f, 0f),
             new Vector2(1f, 0f), new Vector2(68f, 68f), new Vector2(-48f, 126f),
-            () => { if (weapons != null) weapons.QueueVirtualFire(); }, 11);
+            onClick: () => { if (weapons != null) weapons.QueueVirtualFire(); }, fontSize: 11);
         MakeCircular(fireButton);
         CreateHudButton("MenuButton", "MENU", new Vector2(1f, 1f), new Vector2(1f, 1f),
             new Vector2(1f, 1f), new Vector2(88f, 40f), new Vector2(-22f, -18f), OpenMenu, 14);

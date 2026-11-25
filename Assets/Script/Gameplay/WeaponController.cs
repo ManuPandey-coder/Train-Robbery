@@ -152,6 +152,8 @@ public sealed class WeaponController : MonoBehaviour
     public bool IsAiming => isActiveAndEnabled && heldWeapon != null && aimInput;
     public Vector3 AimForward => viewCamera != null ? viewCamera.transform.forward : transform.forward;
 
+    public int SelectedInventorySlot { get; internal set; }
+
     private struct ArmIkData
     {
         public bool valid;
@@ -908,6 +910,31 @@ public sealed class WeaponController : MonoBehaviour
         Quaternion localBasis = Quaternion.LookRotation(localForward, localUp);
         Quaternion worldBasis = Quaternion.LookRotation(worldForward, correctedWorldUp);
         return worldBasis * Quaternion.Inverse(localBasis);
+    }
+
+    internal void SelectInventorySlot(int index)
+    {
+        throw new NotImplementedException();
+    }
+
+    internal string GetInventorySlotName(int i)
+    {
+        throw new NotImplementedException();
+    }
+
+    internal void SetVirtualAim(bool v)
+    {
+        throw new NotImplementedException();
+    }
+
+    internal void TryPickupFromHud()
+    {
+        throw new NotImplementedException();
+    }
+
+    internal void QueueVirtualFire()
+    {
+        throw new NotImplementedException();
     }
 }
 
