@@ -41,8 +41,6 @@ public sealed class WeaponController : MonoBehaviour
     private PlayerController ragdoll;
     private Transform weaponHolder;
     private PickupWeapon heldWeapon;
-    private readonly PickupWeapon[] inventorySlots = new PickupWeapon[5];
-    private int selectedInventorySlot;
     private Camera viewCamera;
     private float pickupProgress;
     private float aimBlend;
@@ -58,8 +56,6 @@ public sealed class WeaponController : MonoBehaviour
     private Quaternion smoothedWeaponLocal;
     private bool holdPoseReady;
     private bool aimInput;
-    private bool virtualAimInput;
-    private bool virtualFireQueued;
     private PickupWeapon.HandPose lastRightHandPose;
     private PickupWeapon.HandPose lastLeftHandPose;
     private bool gripEditing;
@@ -75,13 +71,6 @@ public sealed class WeaponController : MonoBehaviour
     private float visualRecoilBack;
 
     public PickupWeapon HeldWeapon => heldWeapon;
-    public int InventorySlotCount => inventorySlots.Length;
-    public int SelectedInventorySlot => selectedInventorySlot;
-    public string GetInventorySlotName(int index)
-    {
-        if (index < 0 || index >= inventorySlots.Length || inventorySlots[index] == null) return string.Empty;
-        return inventorySlots[index].DisplayName;
-    }
     public bool IsGripEditing => gripEditing && heldWeapon != null;
     public bool CanEditGrip => heldWeapon != null && pickupProgress >= 0.999f;
     public bool IsReloading => reloading && heldWeapon != null && reloadingWeapon == heldWeapon;
@@ -163,10 +152,6 @@ public sealed class WeaponController : MonoBehaviour
     public bool IsAiming => isActiveAndEnabled && heldWeapon != null && aimInput;
     public Vector3 AimForward => viewCamera != null ? viewCamera.transform.forward : transform.forward;
 
-    public void SetVirtualAim(bool aiming) { virtualAimInput = aiming; }
-    public void QueueVirtualFire() { virtualFireQueued = true; }
-    public void ReloadFromHud() { BeginReload(); }
-
     private struct ArmIkData
     {
         public bool valid;
@@ -217,14 +202,13 @@ public sealed class WeaponController : MonoBehaviour
     private void Update()
     {
         if (MenuManager.BlocksGameplay) return;
-        for (int i = 0; i < inventorySlots.Length; i++)
-            if (Input.GetKeyDown((KeyCode)((int)KeyCode.Alpha1 + i))) SelectInventorySlot(i);
         if (viewCamera == null) viewCamera = Camera.main;
-        aimInput = virtualAimInput || Input.GetMouseButton(1);
+        aimInput = Input.GetMouseButton(1);
 
-        if (Input.GetKeyDown(pickupKey))
+        bool inventoryControlsItems = GetComponent<PlayerInventory>() != null;
+        if (!inventoryControlsItems && Input.GetKeyDown(pickupKey))
             TryPickupNearest();
-        if (Input.GetKeyDown(dropKey))
+        if (!inventoryControlsItems && Input.GetKeyDown(dropKey))
             DropHeldWeapon();
 
         if (IsReloading && Time.time >= reloadEndTime)
@@ -233,9 +217,7 @@ public sealed class WeaponController : MonoBehaviour
             CancelReload();
         }
         if (heldWeapon != null && Input.GetKeyDown(reloadKey)) BeginReload();
-        bool firePressed = Input.GetMouseButtonDown(0) || virtualFireQueued;
-        virtualFireQueued = false;
-        if (heldWeapon != null && firePressed) TryFireHeldWeapon();
+        if (heldWeapon != null && Input.GetMouseButtonDown(0)) TryFireHeldWeapon();
 
         float recoilStep = 1f - Mathf.Exp(-visualRecoilRecovery * Time.deltaTime);
         visualRecoilPitch = Mathf.Lerp(visualRecoilPitch, 0f, recoilStep);
@@ -395,16 +377,9 @@ public sealed class WeaponController : MonoBehaviour
 
     }
 
-    public bool TryPickupFromHud() { return TryPickupNearest(); }
-    public void DropSelectedFromHud() { DropHeldWeapon(); }
-
-    public bool TryPickupNearest()
+    private void TryPickupNearest()
     {
-        if (ragdoll == null || ragdoll.Pelvis == null) return false;
-        int emptySlot = -1;
-        for (int i = 0; i < inventorySlots.Length; i++)
-            if (inventorySlots[i] == null) { emptySlot = i; break; }
-        if (emptySlot < 0) return false;
+        if (ragdoll == null || ragdoll.Pelvis == null) return;
         PickupWeapon[] weapons = FindObjectsByType<PickupWeapon>(
             FindObjectsInactive.Exclude, FindObjectsSortMode.None);
         PickupWeapon nearest = null;
@@ -417,12 +392,16 @@ public sealed class WeaponController : MonoBehaviour
             nearestSqrDistance = sqrDistance;
             nearest = weapons[i];
         }
-        if (nearest == null) return false;
+        if (nearest == null) return;
 
-        if (heldWeapon != null) heldWeapon.SetInventoryStored(weaponHolder);
+        EquipWeapon(nearest);
+    }
+
+    public bool EquipWeapon(PickupWeapon nearest)
+    {
+        if (nearest == null || nearest.IsHeld || ragdoll == null) return false;
+        if (heldWeapon != null) DropHeldWeapon();
         heldWeapon = nearest;
-        inventorySlots[emptySlot] = nearest;
-        selectedInventorySlot = emptySlot;
         pickupStartPosition = nearest.transform.position;
         pickupStartRotation = nearest.transform.rotation;
         pickupProgress = 0f;
@@ -436,42 +415,14 @@ public sealed class WeaponController : MonoBehaviour
         return true;
     }
 
-    public void SelectInventorySlot(int index)
+    public void ReleaseEquippedWeapon(Vector3 position, Vector3 velocity)
     {
-        if (index < 0 || index >= inventorySlots.Length) return;
-        if (index == selectedInventorySlot && heldWeapon != null) return;
-        EndGripEditing();
-        CancelReload();
-        if (heldWeapon != null)
-        {
-            ResetLeftShoulder();
-            heldWeapon.SetInventoryStored(weaponHolder);
-            heldWeapon = null;
-            pickupProgress = 0f;
-            aimBlend = 0f;
-            holdPoseReady = false;
-            if (ragdoll != null) ragdoll.ResetUpperBodyAfterGrip();
-        }
-        selectedInventorySlot = index;
-        PickupWeapon next = inventorySlots[index];
-        if (next == null)
-        {
-            if (ragdoll != null) { ragdoll.ArmsReserved = false; ragdoll.SupportHandReserved = false; }
-            return;
-        }
-        heldWeapon = next;
-        heldWeapon.SetInventoryEquipped(weaponHolder);
-        pickupStartPosition = heldWeapon.transform.position;
-        pickupStartRotation = heldWeapon.transform.rotation;
-        pickupProgress = 0f;
-        aimBlend = 0f;
-        holdPoseReady = false;
-        nextShotTime = Time.time;
-        if (ragdoll != null)
-        {
-            ragdoll.ArmsReserved = true;
-            ragdoll.SupportHandReserved = heldWeapon.UsesTwoHands;
-        }
+        PickupWeapon released = heldWeapon;
+        if (released == null) return;
+        DropHeldWeapon();
+        Rigidbody body = released.GetComponent<Rigidbody>();
+        if (body != null) { body.position = position; body.linearVelocity = velocity; }
+        released.transform.position = position;
     }
 
     private void DropHeldWeapon()
@@ -484,9 +435,6 @@ public sealed class WeaponController : MonoBehaviour
         // Release from the hands, with only the player's existing movement.
         // A drop is not a throw and must not receive artificial spin or lift.
         heldWeapon.Drop(heldWeapon.transform.position, Vector3.ClampMagnitude(inheritedVelocity, 6f));
-        if (selectedInventorySlot >= 0 && selectedInventorySlot < inventorySlots.Length &&
-            inventorySlots[selectedInventorySlot] == heldWeapon)
-            inventorySlots[selectedInventorySlot] = null;
         heldWeapon = null;
         pickupProgress = 0f;
         aimBlend = 0f;
@@ -628,7 +576,15 @@ public sealed class WeaponController : MonoBehaviour
 
     private void OnDisable()
     {
-        if (heldWeapon != null) DropHeldWeapon();
+        // During hierarchy deactivation Unity forbids reparenting a child of
+        // the object being disabled. Keep the held object attached through
+        // that lifecycle transition; normal component-only disabling (seats)
+        // may still release it while its entire hierarchy is active.
+        if (gameObject.activeInHierarchy && weaponHolder != null &&
+            weaponHolder.gameObject.activeInHierarchy && heldWeapon != null &&
+            heldWeapon.gameObject.activeInHierarchy)
+            DropHeldWeapon();
+        else CancelReload();
         if (ragdoll != null) { ragdoll.ArmsReserved = false; ragdoll.SupportHandReserved = false; }
     }
 
