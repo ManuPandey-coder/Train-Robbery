@@ -123,6 +123,8 @@ public sealed class PickupWeapon : MonoBehaviour
     private Rigidbody weaponBody;
     private Collider[] weaponColliders = Array.Empty<Collider>();
     private bool[] colliderStates = Array.Empty<bool>();
+    private Renderer[] inventoryRenderers = Array.Empty<Renderer>();
+    private bool[] inventoryRendererStates = Array.Empty<bool>();
     private Transform originalParent;
     private bool held;
     private PhysicsMaterial runtimeFloorMaterial;
@@ -219,6 +221,10 @@ public sealed class PickupWeapon : MonoBehaviour
 
     private void Awake()
     {
+        inventoryRenderers = GetComponentsInChildren<Renderer>(true);
+        inventoryRendererStates = new bool[inventoryRenderers.Length];
+        for (int i = 0; i < inventoryRenderers.Length; i++)
+            inventoryRendererStates[i] = inventoryRenderers[i] != null && inventoryRenderers[i].enabled;
         EnsureFirearmConfiguration();
         ConfigureForFloor();
     }
@@ -495,6 +501,24 @@ public sealed class PickupWeapon : MonoBehaviour
         weaponBody.detectCollisions = false;
         for (int i = 0; i < weaponColliders.Length; i++)
             if (weaponColliders[i] != null) weaponColliders[i].enabled = false;
+    }
+
+    public void SetInventoryStored(Transform holder)
+    {
+        if (!held) BeginHold(holder);
+        else transform.SetParent(holder, true);
+        transform.localPosition = new Vector3(0f, -100f, 0f);
+        for (int i = 0; i < inventoryRenderers.Length; i++)
+            if (inventoryRenderers[i] != null) inventoryRenderers[i].enabled = false;
+    }
+
+    public void SetInventoryEquipped(Transform holder)
+    {
+        if (!held) BeginHold(holder);
+        else transform.SetParent(holder, true);
+        for (int i = 0; i < inventoryRenderers.Length; i++)
+            if (inventoryRenderers[i] != null)
+                inventoryRenderers[i].enabled = i < inventoryRendererStates.Length && inventoryRendererStates[i];
     }
 
     public void Drop(Vector3 position, Vector3 velocity)

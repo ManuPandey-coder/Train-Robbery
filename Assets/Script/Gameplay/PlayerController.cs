@@ -287,6 +287,9 @@ public sealed class PlayerController : MonoBehaviour
     private Vector3 restForward, desiredFacing;
     private Vector2 moveInput;
     private bool runInput;
+    private Vector2 virtualMoveInput;
+    private bool virtualRunInput;
+    private bool virtualJumpQueued;
     private Vector3 movementIntegral, previousMoveDirection;
     private int codeIndex;
     private WeaponController weaponController;
@@ -378,6 +381,14 @@ public sealed class PlayerController : MonoBehaviour
         SetPoseDriver(startWithPhysicsPose);
     }
 
+    public void SetVirtualMovement(Vector2 value, bool running = false)
+    {
+        virtualMoveInput = Vector2.ClampMagnitude(value, 1f);
+        virtualRunInput = running;
+    }
+
+    public void QueueVirtualJump() { virtualJumpQueued = true; }
+
     private void Update()
     {
         if (MenuManager.BlocksGameplay) { ClearInput(); return; }
@@ -422,10 +433,13 @@ public sealed class PlayerController : MonoBehaviour
             return;
         }
 
-        moveInput = Vector2.ClampMagnitude(new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")), 1f);
-        runInput = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+        Vector2 keyboardInput = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
+        moveInput = Vector2.ClampMagnitude(keyboardInput + virtualMoveInput, 1f);
+        runInput = virtualRunInput || Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
 
-        if (Input.GetButtonDown("Jump") && IsGrounded && pelvisBody != null) Jump();
+        bool jumpPressed = Input.GetButtonDown("Jump") || virtualJumpQueued;
+        virtualJumpQueued = false;
+        if (jumpPressed && IsGrounded && pelvisBody != null) Jump();
 
         flopTimer = Mathf.Max(0f, flopTimer - Time.deltaTime);
         jumpSupportCooldown = Mathf.Max(0f, jumpSupportCooldown - Time.deltaTime);

@@ -19,6 +19,7 @@ public sealed class MenuManager : MonoBehaviour
     [SerializeField] private Canvas menuCanvas;
     [SerializeField] private GameObject mainMenuPanel;
     [SerializeField] private GameObject customizationPanel;
+    private GameplayHudController gameplayHud;
 
     [Header("Main Menu Buttons")]
     [SerializeField] private Button playButton;
@@ -98,6 +99,11 @@ public sealed class MenuManager : MonoBehaviour
             if (menuCanvas == null && canvases.Length > 0) menuCanvas = canvases[0];
         }
         if (menuCanvas != null) menuCanvas.gameObject.SetActive(true);
+        if (menuCanvas != null)
+        {
+            gameplayHud = menuCanvas.GetComponent<GameplayHudController>();
+            if (gameplayHud == null) gameplayHud = menuCanvas.gameObject.AddComponent<GameplayHudController>();
+        }
 
         if (player == null) player = FindFirstObjectByType<PlayerController>(FindObjectsInactive.Include);
         if (truck == null) truck = FindFirstObjectByType<VehicleController>(FindObjectsInactive.Include);
@@ -210,7 +216,8 @@ public sealed class MenuManager : MonoBehaviour
         Time.timeScale = 1f;
         if (mainMenuPanel != null) mainMenuPanel.SetActive(false);
         if (customizationPanel != null) customizationPanel.SetActive(false);
-        if (menuCanvas != null) menuCanvas.gameObject.SetActive(false);
+        if (menuCanvas != null) menuCanvas.gameObject.SetActive(true);
+        if (gameplayHud != null) gameplayHud.SetGameplayVisible(true);
         if (gameplayCamera != null)
         {
             gameplayCamera.enabled = true;
@@ -226,6 +233,7 @@ public sealed class MenuManager : MonoBehaviour
         BlocksGameplay = true;
         Time.timeScale = pauseWhileMenuIsOpen ? 0f : 1f;
         if (menuCanvas != null) menuCanvas.gameObject.SetActive(true);
+        if (gameplayHud != null) gameplayHud.SetGameplayVisible(false);
         if (mainMenuPanel != null) mainMenuPanel.SetActive(true);
         if (customizationPanel != null) customizationPanel.SetActive(false);
         if (gameplayCamera != null) gameplayCamera.enabled = false;
@@ -244,6 +252,7 @@ public sealed class MenuManager : MonoBehaviour
         BlocksGameplay = true;
         Time.timeScale = pauseWhileMenuIsOpen ? 0f : 1f;
         if (menuCanvas != null) menuCanvas.gameObject.SetActive(true);
+        if (gameplayHud != null) gameplayHud.SetGameplayVisible(false);
         if (mainMenuPanel != null) mainMenuPanel.SetActive(false);
         if (customizationPanel != null) customizationPanel.SetActive(true);
         category = CharacterAppearance.Category.Hat;
@@ -253,6 +262,11 @@ public sealed class MenuManager : MonoBehaviour
         RefreshCustomizationLabels();
         if (EventSystem.current != null && optionNextButton != null)
             EventSystem.current.SetSelectedGameObject(optionNextButton.gameObject);
+    }
+
+    public void OpenMenuFromHud()
+    {
+        if (gameplayStarted) ShowMainMenu();
     }
 
     private void ChangeCategory(int direction)
