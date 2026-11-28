@@ -388,6 +388,12 @@ public sealed class PlayerController : MonoBehaviour
     }
 
     public void QueueVirtualJump() { virtualJumpQueued = true; }
+    public void ClearTouchInput()
+    {
+        virtualMoveInput = Vector2.zero;
+        virtualRunInput = false;
+        virtualJumpQueued = false;
+    }
 
     private void Update()
     {
@@ -530,7 +536,7 @@ public sealed class PlayerController : MonoBehaviour
     //  INPUT / JUMP
     // =====================================================================================
 
-    private void ClearInput() { moveInput = Vector2.zero; runInput = false; }
+    private void ClearInput() { moveInput = Vector2.zero; runInput = false; virtualJumpQueued = false; }
 
     private void Jump()
     {
@@ -669,7 +675,7 @@ public sealed class PlayerController : MonoBehaviour
                 if (traversal >= 0) movementAnimator.SetLayerWeight(traversal, 0f);
                 movementAnimator.SetBool(AnimatorJumping, false);
                 movementAnimator.SetFloat(AnimatorSpeed, 0f);
-                movementAnimator.Update(0f);
+                if (movementAnimator.isActiveAndEnabled) movementAnimator.Update(0f);
             }
         }
         if (enableAnimator && movementAnimator != null && movementAnimator.runtimeAnimatorController != null)
@@ -1812,7 +1818,8 @@ public sealed class PlayerController : MonoBehaviour
     public void ResetUpperBodyAfterGrip()
     {
         ResetArms(true);
-        if (!dynamicPoseActive && movementAnimator != null && movementAnimator.enabled) movementAnimator.Update(0f);
+        if (!dynamicPoseActive && movementAnimator != null && movementAnimator.isActiveAndEnabled &&
+            movementAnimator.runtimeAnimatorController != null) movementAnimator.Update(0f);
     }
 
     // =====================================================================================
@@ -1882,7 +1889,7 @@ public sealed class PlayerController : MonoBehaviour
         movementAnimator.speed = 1f;
         movementAnimator.SetLayerWeight(layer, 1f);
         movementAnimator.Play(TraversalHoldState, layer, 0f);
-        movementAnimator.Update(0f);
+        if (movementAnimator.isActiveAndEnabled) movementAnimator.Update(0f);
         // GetLayerIndex alone is insufficient: the layer may exist with no playable Hold state.
         if (movementAnimator.GetCurrentAnimatorStateInfo(layer).shortNameHash != TraversalHoldState)
         {
@@ -1909,7 +1916,7 @@ public sealed class PlayerController : MonoBehaviour
         {
             // Start the short top-out clip on its first frame; a crossfade would eat part of it.
             movementAnimator.Play(requested, externalClimbLayer, 0f);
-            movementAnimator.Update(0f);
+            if (movementAnimator.isActiveAndEnabled) movementAnimator.Update(0f);
         }
         else movementAnimator.CrossFade(requested, 0.12f, externalClimbLayer, 0f);
     }
@@ -2479,7 +2486,6 @@ public static class GameBootstrap
         EnsureComponent<ClimbController>(controller);
         EnsureComponent<CharacterAppearance>(controller).LoadSaved();
         MenuManager.Ensure(controller);
-        PickupWeapon.PrepareSceneWeapons();
     }
 
     private static T EnsureComponent<T>(Component owner) where T : Component

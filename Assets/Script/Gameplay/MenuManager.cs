@@ -1,4 +1,5 @@
 using TMPro;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -42,6 +43,8 @@ public sealed class MenuManager : MonoBehaviour
     [SerializeField] private Camera sceneCamera;
     [SerializeField, Range(0.5f, 3f)] private float truckViewDistance = 1.15f;
     [SerializeField, Range(0.5f, 3f)] private float characterViewDistance = 1.85f;
+    [Header("Customization Layout")]
+    [SerializeField] private bool fitCustomizationControls = true;
 
     private TMP_Text settingsLabel;
     private TMP_Text playLabel;
@@ -65,6 +68,7 @@ public sealed class MenuManager : MonoBehaviour
     private void Awake()
     {
         ResolveSceneObjects();
+        if (fitCustomizationControls) RepairCustomizationLayout();
         BindButtons();
         if (openMainMenuAtStart) ShowMainMenu();
         else StartOrResumeGame();
@@ -92,10 +96,11 @@ public sealed class MenuManager : MonoBehaviour
     private void ResolveSceneObjects()
     {
         Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-        if (menuCanvas == null)
+        if (menuCanvas == null || menuCanvas.GetComponentsInChildren<Button>(true).Length == 0)
         {
             for (int i = 0; i < canvases.Length; i++)
-                if (canvases[i].name == "Canvas") { menuCanvas = canvases[i]; break; }
+                if (canvases[i].GetComponentsInChildren<Transform>(true).Any(t=>t.name.ToLowerInvariant()=="customize menu"))
+                { menuCanvas = canvases[i]; break; }
             if (menuCanvas == null && canvases.Length > 0) menuCanvas = canvases[0];
         }
         if (menuCanvas != null) menuCanvas.gameObject.SetActive(true);
@@ -149,6 +154,57 @@ public sealed class MenuManager : MonoBehaviour
         playText = TextOf(playLabel, "PLAY");
         settingsText = TextOf(settingsLabel, "SETTINGS");
         EnsureEventSystem();
+    }
+
+    public void RepairCustomizationLayout()
+    {
+        if(customizationPanel==null) ResolveSceneObjects();
+        if(customizationPanel==null) return;
+        RectTransform panel=customizationPanel.transform as RectTransform;
+        Fit(panel,Vector2.zero,Vector2.one);
+        Transform card=panel.Find("Customization Controls");
+        if(card==null)
+        {
+            var go=new GameObject("Customization Controls",typeof(RectTransform),typeof(UnityEngine.UI.Image));
+            go.transform.SetParent(panel,false); card=go.transform;
+        }
+        Fit(card as RectTransform,new Vector2(.035f,.1f),new Vector2(.39f,.9f));
+        var image=card.GetComponent<UnityEngine.UI.Image>();
+        if(image==null) image=card.gameObject.AddComponent<UnityEngine.UI.Image>();
+        image.color=new Color(.055f,.075f,.1f,.96f); image.raycastTarget=false;
+        var panelImage=panel.GetComponent<UnityEngine.UI.Image>();
+        if(panelImage!=null){panelImage.color=Color.clear;panelImage.raycastTarget=false;}
+        string[] names={"Customization Title","Category Label","Category Previous Button","Category Next Button",
+            "Option Label","Option Previous Button","Option Next Button","Back Button"};
+        Vector2[] min={new Vector2(.06f,.81f),new Vector2(.24f,.61f),new Vector2(.08f,.61f),new Vector2(.79f,.61f),
+            new Vector2(.24f,.39f),new Vector2(.08f,.4f),new Vector2(.79f,.4f),new Vector2(.08f,.07f)};
+        Vector2[] max={new Vector2(.94f,.95f),new Vector2(.76f,.72f),new Vector2(.21f,.72f),new Vector2(.92f,.72f),
+            new Vector2(.76f,.53f),new Vector2(.21f,.52f),new Vector2(.92f,.52f),new Vector2(.92f,.19f)};
+        foreach(var pair in names.Select((n,i)=>new {name=n,index=i}))
+        {
+            Transform node=panel.GetComponentsInChildren<Transform>(true).FirstOrDefault(t=>t.name==pair.name);
+            if(node==null) continue;
+            node.SetParent(card,false); Fit(node as RectTransform,min[pair.index],max[pair.index]);
+            var layout=node.GetComponent<UnityEngine.UI.LayoutElement>(); if(layout!=null)layout.ignoreLayout=true;
+            var button=node.GetComponent<UnityEngine.UI.Button>();
+            if(button!=null && button.targetGraphic!=null)
+            {button.targetGraphic.color=new Color(.33f,.24f,.14f);button.targetGraphic.raycastTarget=true;}
+            foreach(TMP_Text text in node.GetComponentsInChildren<TMP_Text>(true))
+            {
+                text.color=new Color(.96f,.94f,.88f);text.raycastTarget=false;
+                text.enableAutoSizing=true;text.fontSizeMin=12;text.fontSizeMax=pair.index==0?30:26;
+                text.alignment=TextAlignmentOptions.Center;
+                if(text.transform!=node) Fit(text.rectTransform,new Vector2(.06f,.08f),new Vector2(.94f,.92f));
+            }
+        }
+        Canvas.ForceUpdateCanvases();
+    }
+
+    private static void Fit(RectTransform rect,Vector2 min,Vector2 max)
+    {
+        if(rect==null) return;
+        rect.anchorMin=min;rect.anchorMax=max;rect.offsetMin=rect.offsetMax=Vector2.zero;
+        rect.localScale=Vector3.one;rect.localRotation=Quaternion.identity;
     }
 
     private void BindButtons()
@@ -223,7 +279,7 @@ public sealed class MenuManager : MonoBehaviour
             gameplayCamera.enabled = true;
             if (player != null) gameplayCamera.Target = player;
         }
-        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.lockState = Application.isMobilePlatform ? CursorLockMode.None : CursorLockMode.Locked;
         Cursor.visible = false;
     }
 
@@ -295,6 +351,21 @@ public sealed class MenuManager : MonoBehaviour
     {
         if (sceneCamera == null) sceneCamera = Camera.main;
         if (sceneCamera == null || target == null) return;
+        if (player != null && target == player.gameObject)
+        {
+            Renderer body = target.GetComponentsInChildren<Renderer>(true).FirstOrDefault(r=>r.name=="BODY");
+            if (body != null)
+            {
+                Vector3 front = Vector3.ProjectOnPlane(player.FacingDirection,Vector3.up).normalized;
+                if(front.sqrMagnitude<.1f) front=Vector3.back;
+                Vector3 cameraRight=Vector3.Cross(Vector3.up,-front).normalized;
+                float characterDistance=Mathf.Max(2.2f,body.bounds.size.y*distanceScale*.72f);
+                Vector3 previewCenter=body.bounds.center-cameraRight*(characterDistance*.26f);
+                sceneCamera.transform.position=previewCenter+front*characterDistance+Vector3.up*.08f;
+                sceneCamera.transform.rotation=Quaternion.LookRotation(previewCenter-sceneCamera.transform.position);
+                return;
+            }
+        }
         Renderer[] renderers = target.GetComponentsInChildren<Renderer>(true);
         if (renderers.Length == 0) return;
         Bounds bounds = renderers[0].bounds;

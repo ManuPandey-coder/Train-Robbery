@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: d0fe39dabdf36d54fab30a56ad6ac219
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 9100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 325517
+  packageName: Dead West - Animated Western Weapons
+  packageVersion: 1.0
+  assetPath: Assets/Dead West - Animated Western Weapons/Animations/ShotGun/ShotGun.controller
+  uploadId: 769992
